@@ -327,6 +327,14 @@ body::before {
 .status-orb.thinking { background: var(--gold); box-shadow: 0 0 8px var(--gold); animation: pulse-orb 1.2s ease-in-out infinite; }
 .status-orb.saving { background: #4a9a4a; box-shadow: 0 0 8px #4a9a4a; }
 @keyframes pulse-orb { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.card-delete-btn {
+  background: none; border: none; color: var(--ash);
+  cursor: pointer; font-size: 0.8rem; padding: 6px 8px;
+  border-radius: 3px; transition: color 0.2s; flex-shrink: 0;
+  opacity: 0; transition: opacity 0.2s;
+}
+.game-card:hover .card-delete-btn { opacity: 1; }
+.card-delete-btn:hover { color: #e06060; }
 </style>
 </head>
 <body>
@@ -652,14 +660,21 @@ async function showLibrary() {
       const color = ACCENT_COLORS[i % ACCENT_COLORS.length];
       const card = document.createElement('div');
       card.className = 'game-card';
-      card.onclick = () => loadGame(games[i].name);
       card.innerHTML = `
         <div class="game-card-accent" style="background:${color}"></div>
-        <div class="game-card-body">
+        <div class="game-card-body" style="cursor:pointer">
           <div class="game-card-name">${escHtml(name)}</div>
           <div class="game-card-meta">${escHtml(character)}${character && lastPlayed ? ' · ' : ''}${escHtml(lastPlayed)}</div>
         </div>
-        <div class="game-card-arrow">›</div>`;
+        <button class="card-delete-btn" title="Delete game">✕</button>
+        <div class="game-card-arrow" style="cursor:pointer">›</div>`;
+      // Click body or arrow to load, click X to delete
+      card.querySelector('.game-card-body').onclick = () => loadGame(games[i].name);
+      card.querySelector('.game-card-arrow').onclick = () => loadGame(games[i].name);
+      card.querySelector('.card-delete-btn').onclick = (e) => {
+        e.stopPropagation();
+        confirmDeleteGame(games[i].name, name, card);
+      };
       grid.appendChild(card);
     }
 
@@ -671,6 +686,42 @@ async function showLibrary() {
 
   } catch(e) {
     grid.innerHTML = `<div class="library-loading">Could not reach GitHub. Check your token in ⚙ Keys.<br><br><small style="opacity:0.6">${escHtml(e.message)}</small></div>`;
+  }
+}
+
+// ── Delete game ─────────────────────────────────────────────
+function confirmDeleteGame(gameId, gameName, cardEl) {
+  // Replace card content with inline confirm
+  cardEl.innerHTML = `
+    <div style="flex:1; font-family:'Cinzel',serif; font-size:0.8rem; letter-spacing:0.08em; color:var(--parchment);">
+      Delete "${escHtml(gameName)}"?
+    </div>
+    <button class="confirm-cancel-btn" id="del-cancel-${gameId}">Keep</button>
+    <button class="confirm-send-btn" id="del-confirm-${gameId}" style="background:#5a1a1a; border-color:#8a3030;">Delete</button>
+  `;
+  document.getElementById(`del-cancel-${gameId}`).onclick = () => showLibrary();
+  document.getElementById(`del-confirm-${gameId}`).onclick = () => deleteGame(gameId, cardEl);
+}
+
+async function deleteGame(gameId, cardEl) {
+  cardEl.innerHTML = `<div style="flex:1;font-style:italic;color:var(--ash);font-size:0.85rem;padding:4px 0;">Deleting...</div>`;
+  try {
+    // List all files in the game folder and delete each one
+    const files = await ghList(`saves/${gameId}`);
+    for (const f of files) {
+      if (f.type === 'file') {
+        await ghRequest('DELETE', `saves/${gameId}/${f.name}`, {
+          message: `Chronicle: delete ${gameId}/${f.name}`,
+          sha: f.sha,
+        });
+        await new Promise(r => setTimeout(r, 150));
+      }
+    }
+    cardEl.remove();
+    showSuccess('Chronicle deleted.');
+  } catch(e) {
+    showError('Delete failed: ' + e.message);
+    showLibrary();
   }
 }
 
@@ -1166,13 +1217,22 @@ async function getNpcVoice(name, desc) {
   const { elevenKey } = getSettings();
   if (!elevenKey || !desc) return null;
 
-  // Build a clean voice description for ElevenLabs
-  // desc format: "gender:age:quality" e.g. "male:old:gruff and weary"
-  const parts = desc.split(':');
-  const gender  = parts[0] || 'neutral';
-  const age     = parts[1] || 'middle-aged';
-  const quality = parts[2] || 'clear and calm';
-  const prompt  = `A ${age} ${gender} voice, ${quality}. Fantasy character named ${name}.`;
+  // Build natural language voice description from tag format "gender:age:quality"
+  let prompt;
+  if (desc && desc.includes(':')) {
+    const parts = desc.split(':');
+    const gender  = parts[0]?.trim() || 'neutral';
+    const age     = parts[1]?.trim() || 'middle-aged';
+    const quality = parts[2]?.trim() || 'clear and calm';
+    prompt = `${age} ${gender}, ${quality} voice`;
+  } else if (desc) {
+    prompt = desc;
+  } else {
+    prompt = `a clear neutral voice`;
+  }
+
+  // ElevenLabs requires the preview text to be 100-1000 characters
+  const previewText = `The road ahead is long, and I have seen much in my time. Listen well, for I will not repeat myself. There are things in this world that defy explanation, and I have witnessed most of them. My name is ${name}, and what I tell you now matters.`;
 
   try {
     // Step 1: Generate voice preview
@@ -1181,7 +1241,7 @@ async function getNpcVoice(name, desc) {
       headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         voice_description: prompt,
-        text: `Greetings. My name is ${name}. I have something important to tell you.`,
+        text: previewText,
       }),
     });
 

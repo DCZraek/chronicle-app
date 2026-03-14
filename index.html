@@ -746,12 +746,10 @@ function getSettings() {
 
 function saveSettings() {
   const anthropic = document.getElementById('s-anthropic').value.trim();
-  const eleven    = document.getElementById('s-eleven').value.trim();
   const voice     = document.getElementById('s-voice').value.trim();
   const github    = document.getElementById('s-github').value.trim();
   if (!anthropic) { showError('Anthropic key is required.'); return; }
   if (!github)    { showError('GitHub token is required.'); return; }
-  // No OpenAI key needed — Kokoro runs in browser
   localStorage.setItem('ch_anthropic', anthropic);
   localStorage.setItem('ch_voice',     voice || 'am_echo');
   localStorage.setItem('ch_github',    github);
@@ -1474,57 +1472,14 @@ const ALL_VOICES = [
   ...VOICE_POOL.neutral,
 ];
 
-// ── Worker script (runs in separate thread) ──────────────────
-const WORKER_SCRIPT = `
-let tts = null;
-
-self.addEventListener('message', async (e) => {
-  const { type, id, voice, text, voices } = e.data;
-
-  if (type === 'LOAD') {
-    try {
-      self.postMessage({ type: 'PROGRESS', text: 'Downloading voice model (~86MB)...' });
-      const { KokoroTTS } = await import('https://esm.sh/kokoro-js@1.2.1');
-      tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
-        dtype: 'q8',
-        device: 'wasm',
-      });
-      self.postMessage({ type: 'READY' });
-    } catch(err) {
-      self.postMessage({ type: 'ERROR', text: err.message });
-    }
-  }
-
-  else if (type === 'GENERATE') {
-    try {
-      const audio = await tts.generate(text, { voice });
-      const wav = audio.toWav ? audio.toWav() : audio;
-      // Transfer the buffer to avoid copying
-      self.postMessage({ type: 'AUDIO', id, wav: wav.buffer }, [wav.buffer]);
-    } catch(err) {
-      self.postMessage({ type: 'GENERATE_ERROR', id, text: err.message });
-    }
-  }
-
-  else if (type === 'WARM') {
-    // Warm all voices one at a time, reporting progress
-    for (let i = 0; i < voices.length; i++) {
-      try {
-        await tts.generate('The road ahead is long.', { voice: voices[i].id });
-      } catch(e) {}
-      self.postMessage({ type: 'WARM_PROGRESS', index: i, total: voices.length, label: voices[i].label });
-    }
-    self.postMessage({ type: 'WARM_DONE' });
-  }
-});
-`;
+// Worker runs in kokoro-worker.js (real file, not blob — required for GitHub Pages CSP)
 
 // ── Worker lifecycle ─────────────────────────────────────────
 
 function createKokoroWorker() {
-  const blob = new Blob([WORKER_SCRIPT], { type: 'application/javascript' });
-  const url  = URL.createObjectURL(blob);
-  const worker = new Worker(url, { type: 'module' });
+  // Use a real hosted file instead of a blob URL so GitHub Pages CSP allows
+  // dynamic imports (esm.sh) inside the worker
+  const worker = new Worker('./kokoro-worker.js', { type: 'module' });
 
   worker.onmessage = (e) => {
     const msg = e.data;
@@ -1577,6 +1532,13 @@ function createKokoroWorker() {
     else if (msg.type === 'WARM_PROGRESS') {
       const btn = document.getElementById('prepare-voices-btn');
       if (btn) btn.textContent = `🔊 Warming ${msg.index + 1}/${msg.total}`;
+      // Also update prepareVoices progress bar if it's open
+      if (preparingVoices) {
+        const { count, progress, label } = preparingVoices;
+        count.textContent = `${msg.index + 1} / ${msg.total}`;
+        progress.style.width = `${Math.round(((msg.index + 1) / msg.total) * 100)}%`;
+        label.textContent = `Warming up ${msg.label}...`;
+      }
     }
 
     else if (msg.type === 'WARM_DONE') {
@@ -1585,6 +1547,17 @@ function createKokoroWorker() {
       if (btn) {
         btn.textContent = '✓ Voices Ready';
         btn.style.color = 'var(--gold)';
+      }
+      if (preparingVoices) {
+        const { bar, label, progress, count, total, btn: pBtn } = preparingVoices;
+        progress.style.width = '100%';
+        count.textContent = `${total} / ${total}`;
+        label.textContent = 'All voices ready!';
+        pBtn.textContent = '✓ Voices Ready';
+        pBtn.style.color = 'var(--gold)';
+        pBtn.disabled = false;
+        setTimeout(() => { bar.style.display = 'none'; }, 3000);
+        preparingVoices = null;
       }
       if (navigator.serviceWorker?.controller) {
         navigator.serviceWorker.controller.postMessage('CACHE_SIZE');
@@ -1694,30 +1667,13 @@ async function prepareVoices() {
   label.textContent = 'Warming voices...';
   const total = ALL_VOICES.length;
 
-  // Override WARM_PROGRESS handler to also update the progress bar
-  const origOnMessage = kokoroWorker.onmessage;
-  kokoroWorker.onmessage = (e) => {
-    origOnMessage(e);
-    if (e.data.type === 'WARM_PROGRESS') {
-      const i = e.data.index;
-      count.textContent = `${i + 1} / ${total}`;
-      progress.style.width = `${Math.round(((i + 1) / total) * 100)}%`;
-      label.textContent = `Warming up ${e.data.label}...`;
-    }
-    if (e.data.type === 'WARM_DONE') {
-      progress.style.width = '100%';
-      count.textContent = `${total} / ${total}`;
-      label.textContent = 'All voices ready!';
-      btn.textContent = '✓ Voices Ready';
-      btn.style.color = 'var(--gold)';
-      btn.disabled = false;
-      setTimeout(() => { bar.style.display = 'none'; }, 3000);
-      kokoroWorker.onmessage = origOnMessage; // restore
-    }
-  };
-
+  // Use a flag so the main onmessage handler updates the bar
+  preparingVoices = { bar, label, progress, count, btn, total };
   kokoroWorker.postMessage({ type: 'WARM', voices: ALL_VOICES });
 }
+
+// Track active prepareVoices UI state (set during manual warm, cleared on done)
+let preparingVoices = null;
 
 async function speakText(text) {
   const { voiceId: narratorVoiceId } = getSettings();

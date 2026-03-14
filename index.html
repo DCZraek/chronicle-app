@@ -1388,7 +1388,7 @@ async function loadKokoro(onProgress) {
   kokoroLoading = true;
   try {
     // Dynamic import from jsDelivr CDN
-    const { KokoroTTS } = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.0/dist/kokoro.mjs');
+    const { KokoroTTS } = await import('https://esm.sh/kokoro-js@1.2.1');
     onProgress && onProgress('Downloading voice model (~86MB)...');
     kokoroTTS = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
       dtype: 'q8',

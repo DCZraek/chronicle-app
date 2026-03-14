@@ -425,39 +425,55 @@ body::before {
       <div class="settings-section-title">Voice Narration — Kokoro (Free, runs in browser)</div>
       <div>
         <label class="field-label">Narrator Voice</label>
-        <select class="field-input" id="s-voice" style="cursor:pointer;">
-          <optgroup label="American Male">
-            <option value="am_echo">Echo — clear, balanced (recommended narrator)</option>
-            <option value="am_adam">Adam — deep, authoritative</option>
-            <option value="am_michael">Michael — steady, older</option>
-            <option value="am_liam">Liam — calm, measured</option>
-            <option value="am_onyx">Onyx — deep, brooding</option>
-            <option value="am_fenrir">Fenrir — fierce, intense</option>
-            <option value="am_puck">Puck — mischievous, light</option>
-          </optgroup>
-          <optgroup label="British Male">
-            <option value="bm_george">George — refined, British</option>
-            <option value="bm_lewis">Lewis — clear, British</option>
-            <option value="bm_daniel">Daniel — warm, friendly British</option>
-          </optgroup>
-          <optgroup label="American Female">
-            <option value="af_heart">Heart — warm and engaging</option>
-            <option value="af_bella">Bella — soft and gentle</option>
-            <option value="af_nova">Nova — bright and clear</option>
-            <option value="af_sarah">Sarah — calm and natural</option>
-            <option value="af_jessica">Jessica — confident, direct</option>
-            <option value="af_kore">Kore — cool and detached</option>
-            <option value="af_aoede">Aoede — melodic, lyrical</option>
-            <option value="af_river">River — flowing and gentle</option>
-            <option value="af_sky">Sky — light and airy</option>
-            <option value="af_nicole">Nicole — breathy, intimate</option>
-            <option value="af_alloy">Alloy — neutral, ambiguous</option>
-          </optgroup>
-          <optgroup label="British Female">
-            <option value="bf_emma">Emma — warm, British</option>
-            <option value="bf_isabella">Isabella — commanding, British</option>
-          </optgroup>
-        </select>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select class="field-input" id="s-voice" style="cursor:pointer;flex:1;">
+            <optgroup label="American Male">
+              <option value="am_echo">Echo — clear, balanced (recommended narrator)</option>
+              <option value="am_adam">Adam — deep, authoritative</option>
+              <option value="am_michael">Michael — steady, older</option>
+              <option value="am_liam">Liam — calm, measured</option>
+              <option value="am_onyx">Onyx — deep, brooding</option>
+              <option value="am_fenrir">Fenrir — fierce, intense</option>
+              <option value="am_puck">Puck — mischievous, light</option>
+              <option value="am_eric">Eric — neutral, clear</option>
+            </optgroup>
+            <optgroup label="British Male">
+              <option value="bm_george">George — refined, British</option>
+              <option value="bm_fable">Fable — warm storyteller, British</option>
+              <option value="bm_lewis">Lewis — clear, British</option>
+              <option value="bm_daniel">Daniel — friendly, British</option>
+            </optgroup>
+            <optgroup label="American Female">
+              <option value="af_heart">Heart — warm and engaging</option>
+              <option value="af_bella">Bella — soft and gentle</option>
+              <option value="af_nova">Nova — bright and clear</option>
+              <option value="af_sarah">Sarah — calm and natural</option>
+              <option value="af_jessica">Jessica — confident, direct</option>
+              <option value="af_kore">Kore — cool and detached</option>
+              <option value="af_aoede">Aoede — melodic, lyrical</option>
+              <option value="af_river">River — flowing and gentle</option>
+              <option value="af_sky">Sky — light and airy</option>
+              <option value="af_nicole">Nicole — breathy, intimate</option>
+              <option value="af_alloy">Alloy — neutral, ambiguous</option>
+            </optgroup>
+            <optgroup label="British Female">
+              <option value="bf_emma">Emma — warm, British</option>
+              <option value="bf_isabella">Isabella — commanding, British</option>
+              <option value="bf_alice">Alice — clear, British</option>
+              <option value="bf_lily">Lily — soft, British</option>
+            </optgroup>
+          </select>
+          <button id="preview-voice-btn" onclick="previewNarratorVoice()" style="
+            background:var(--ember-dim);border:1px solid var(--ember);
+            border-radius:3px;color:var(--parchment);
+            font-family:'Cinzel',serif;font-size:0.68rem;
+            letter-spacing:0.1em;text-transform:uppercase;
+            padding:0 14px;height:46px;cursor:pointer;
+            white-space:nowrap;flex-shrink:0;transition:background 0.2s;">
+            ▶ Preview
+          </button>
+        </div>
+        <div id="preview-status" style="font-size:0.75rem;color:var(--ash);font-style:italic;margin-top:6px;min-height:16px;"></div>
       </div>
       <div class="settings-hint">No API key needed. Kokoro runs entirely in your browser. The model (~86MB) downloads once on first use and is then cached forever.</div>
     </div>
@@ -1092,10 +1108,32 @@ async function loadGame(gameId) {
 
     setOrb('ready');
     updateCounter();
+
+    // Silently pre-warm all voices in the background after game loads
+    // This ensures zero delay when NPCs speak for the first time
+    if (kokoroReady) {
+      warmAllVoicesBackground();
+    }
+
   } catch(e) {
     showError('Failed to load game: ' + e.message);
     showLibrary();
   }
+}
+
+async function warmAllVoicesBackground() {
+  // Run after a short delay so it doesn't compete with the opening scene
+  await new Promise(r => setTimeout(r, 3000));
+  console.log('[Chronicle] Background voice warm-up starting...');
+  for (const voice of ALL_VOICES) {
+    if (!activeGameId) break; // stop if player exited
+    try {
+      await kokoroTTS.generate('The road ahead is long.', { voice: voice.id });
+    } catch(e) {}
+    // Small gap between each to avoid freezing
+    await new Promise(r => setTimeout(r, 100));
+  }
+  console.log('[Chronicle] Background voice warm-up complete.');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1435,6 +1473,11 @@ async function loadKokoro(onProgress) {
     kokoroReady = true;
     kokoroLoading = false;
     onProgress && onProgress('Voice model ready.');
+    // Pre-warm the narrator voice immediately so first line plays fast
+    const { voiceId } = getSettings();
+    if (voiceId) {
+      try { await kokoroTTS.generate('The road ahead is long.', { voice: voiceId }); } catch(e) {}
+    }
     return true;
   } catch(e) {
     kokoroLoading = false;
@@ -1474,8 +1517,8 @@ async function prepareVoices() {
     progress.style.width = `${Math.round((i / total) * 100)}%`;
     label.textContent = `Warming up ${voice.label}...`;
     try {
-      // Generate a short silent-ish phrase to load the voice embedding
-      await kokoroTTS.generate('.', { voice: voice.id });
+      // Generate a real sentence — Kokoro needs this to fully cache voice tensors
+      await kokoroTTS.generate('The road ahead is long.', { voice: voice.id });
     } catch(e) {
       // Some voice IDs may not exist in this version — skip silently
       console.warn(`[Chronicle] Voice ${voice.id} not available, skipping`);
@@ -1901,6 +1944,86 @@ async function saveImportedGame() {
     btn.disabled = false;
     btn.textContent = 'Save & Enter the Chronicle';
     showError('Save failed: ' + e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// VOICE PREVIEW (settings screen)
+// ═══════════════════════════════════════════════════════════
+const PREVIEW_TEXT = "The fire burned low in the great hall. Outside, the wind moved through the trees like a warning no one had yet learned to read.";
+
+let previewAudio = null;
+
+async function previewNarratorVoice() {
+  const btn   = document.getElementById('preview-voice-btn');
+  const status = document.getElementById('preview-status');
+  const voiceId = document.getElementById('s-voice').value;
+
+  // Stop any playing preview
+  if (previewAudio) {
+    previewAudio.pause();
+    previewAudio = null;
+    btn.textContent = '▶ Preview';
+    btn.style.background = 'var(--ember-dim)';
+    status.textContent = '';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '...';
+  status.textContent = 'Loading voice model...';
+
+  // Load Kokoro if needed
+  if (!kokoroReady) {
+    const ok = await loadKokoro((msg) => { status.textContent = msg; });
+    if (!ok) {
+      btn.disabled = false;
+      btn.textContent = '▶ Preview';
+      status.textContent = 'Could not load voice model.';
+      return;
+    }
+  }
+
+  status.textContent = `Generating ${voiceId}...`;
+
+  try {
+    const audio = await kokoroTTS.generate(PREVIEW_TEXT, { voice: voiceId });
+    const wav = audio.toWav ? audio.toWav() : audio;
+    const url = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
+
+    previewAudio = new Audio(url);
+    btn.disabled = false;
+    btn.textContent = '■ Stop';
+    btn.style.background = 'var(--ember)';
+
+    const voiceName = document.getElementById('s-voice')
+      .options[document.getElementById('s-voice').selectedIndex]
+      .text.split(' — ')[0];
+    status.textContent = `Playing: ${voiceName}`;
+
+    previewAudio.onended = () => {
+      previewAudio = null;
+      URL.revokeObjectURL(url);
+      btn.textContent = '▶ Preview';
+      btn.style.background = 'var(--ember-dim)';
+      status.textContent = `✓ ${voiceName} previewed`;
+    };
+
+    previewAudio.onerror = () => {
+      previewAudio = null;
+      btn.textContent = '▶ Preview';
+      btn.style.background = 'var(--ember-dim)';
+      status.textContent = '';
+    };
+
+    await previewAudio.play();
+
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = '▶ Preview';
+    btn.style.background = 'var(--ember-dim)';
+    status.textContent = 'Preview failed — voice may not be available.';
+    console.warn('[Chronicle] Preview error:', e);
   }
 }
 

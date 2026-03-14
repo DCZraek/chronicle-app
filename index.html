@@ -823,6 +823,15 @@ async function showLibrary() {
   showScreen('library');
   const grid = document.getElementById('library-grid');
   grid.innerHTML = '<div class="library-loading">Retrieving your chronicles...</div>';
+
+  // Silently start loading Kokoro and warming voices in the background
+  // so they're ready before the player opens a game
+  if (!kokoroReady && !kokoroLoading) {
+    loadKokoro().then(() => {
+      warmAllVoicesBackground();
+    }).catch(() => {});
+  }
+
   try {
     const items = await ghList('saves');
     const games = items.filter(i => i.type === 'dir');
@@ -1109,11 +1118,7 @@ async function loadGame(gameId) {
     setOrb('ready');
     updateCounter();
 
-    // Silently pre-warm all voices in the background after game loads
-    // This ensures zero delay when NPCs speak for the first time
-    if (kokoroReady) {
-      warmAllVoicesBackground();
-    }
+    // Voices are warmed in background from showLibrary — no need to restart here
 
   } catch(e) {
     showError('Failed to load game: ' + e.message);
@@ -1122,18 +1127,47 @@ async function loadGame(gameId) {
 }
 
 async function warmAllVoicesBackground() {
-  // Run after a short delay so it doesn't compete with the opening scene
-  await new Promise(r => setTimeout(r, 3000));
+  if (!kokoroReady || !kokoroTTS) return;
+  // Small delay so it doesn't compete with page rendering
+  await new Promise(r => setTimeout(r, 1500));
   console.log('[Chronicle] Background voice warm-up starting...');
-  for (const voice of ALL_VOICES) {
-    if (!activeGameId) break; // stop if player exited
+
+  const btn = document.getElementById('prepare-voices-btn');
+
+  for (let i = 0; i < ALL_VOICES.length; i++) {
+    const voice = ALL_VOICES[i];
+    // Update button to show progress
+    if (btn) btn.textContent = `🔊 Warming ${i + 1}/${ALL_VOICES.length}`;
     try {
       await kokoroTTS.generate('The road ahead is long.', { voice: voice.id });
     } catch(e) {}
-    // Small gap between each to avoid freezing
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 50));
   }
+
   console.log('[Chronicle] Background voice warm-up complete.');
+  if (btn) {
+    btn.textContent = '✓ Voices Ready';
+    btn.style.color = 'var(--gold)';
+  }
+
+  // Ask SW how many files are now cached and show it
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage('CACHE_SIZE');
+  }
+}
+
+// Listen for cache size reports from the Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'CACHE_SIZE') {
+      const btn = document.getElementById('prepare-voices-btn');
+      if (btn && event.data.count > 0) {
+        btn.textContent = `✓ ${event.data.count} files cached`;
+        btn.style.color = 'var(--gold)';
+        btn.title = 'Kokoro voice files are cached locally — instant loading every session';
+      }
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1488,18 +1522,24 @@ async function loadKokoro(onProgress) {
 
 // Pre-warm all voices so they're instant during gameplay
 async function prepareVoices() {
-  const btn = document.getElementById('prepare-voices-btn');
-  const bar = document.getElementById('voice-prep-bar');
+  // If already warming in background, just show the progress bar
+  const btn  = document.getElementById('prepare-voices-btn');
+  const bar  = document.getElementById('voice-prep-bar');
   const label = document.getElementById('voice-prep-label');
   const progress = document.getElementById('voice-prep-progress');
   const count = document.getElementById('voice-prep-count');
+
+  // If already ready, just confirm
+  if (kokoroReady && btn.textContent.includes('Ready')) {
+    showSuccess('All voices are already warmed up and ready.');
+    return;
+  }
 
   btn.disabled = true;
   bar.style.display = 'block';
   label.textContent = 'Loading voice model...';
   progress.style.width = '0%';
 
-  // Load model first if not ready
   const ok = await loadKokoro((msg) => { label.textContent = msg; });
   if (!ok) {
     bar.style.display = 'none';
@@ -1509,31 +1549,23 @@ async function prepareVoices() {
   }
 
   const total = ALL_VOICES.length;
-  label.textContent = 'Warming up voices...';
-
   for (let i = 0; i < total; i++) {
     const voice = ALL_VOICES[i];
     count.textContent = `${i} / ${total}`;
     progress.style.width = `${Math.round((i / total) * 100)}%`;
     label.textContent = `Warming up ${voice.label}...`;
     try {
-      // Generate a real sentence — Kokoro needs this to fully cache voice tensors
       await kokoroTTS.generate('The road ahead is long.', { voice: voice.id });
-    } catch(e) {
-      // Some voice IDs may not exist in this version — skip silently
-      console.warn(`[Chronicle] Voice ${voice.id} not available, skipping`);
-    }
+    } catch(e) {}
   }
 
   progress.style.width = '100%';
   count.textContent = `${total} / ${total}`;
-  label.textContent = 'All voices ready — enjoy seamless narration!';
+  label.textContent = 'All voices ready!';
   btn.textContent = '✓ Voices Ready';
   btn.style.color = 'var(--gold)';
-
-  setTimeout(() => {
-    bar.style.display = 'none';
-  }, 3000);
+  btn.disabled = false;
+  setTimeout(() => { bar.style.display = 'none'; }, 3000);
 }
 
 // Convert Kokoro AudioData to a playable blob URL
@@ -2031,6 +2063,18 @@ async function previewNarratorVoice() {
 // BOOT
 // ═══════════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
+  // Register Service Worker for Kokoro voice file caching
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        console.log('[Chronicle] Service Worker registered:', reg.scope);
+      })
+      .catch(err => {
+        console.warn('[Chronicle] Service Worker registration failed:', err);
+        // App still works without SW — just no persistent caching
+      });
+  }
+
   const { anthropicKey, githubToken } = getSettings();
   if (!anthropicKey || !githubToken) {
     showScreen('settings');

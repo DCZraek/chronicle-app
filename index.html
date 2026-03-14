@@ -519,14 +519,22 @@ Player may operate a merchant enterprise. Track: funds, trade routes, inventory,
 SPEECH TAGGING — CRITICAL
 Every response must tag spoken dialogue and narration using this exact format:
 [N] for narrator/description text
-[C:Name|gender:age:quality] for the FIRST TIME a character speaks (gender: male/female/neutral, age: young/middle/old, quality: e.g. gruff, warm, sharp, weary, imperious, lilting)
+[C:Name|voice description] for the FIRST TIME a character speaks — the voice description must be a vivid, complete sentence describing exactly how the voice sounds
 [C:Name] for all subsequent lines from the same character once introduced
 
-Example:
-[N] The innkeeper wiped down the bar without looking up.
-[C:Aldric|male:old:gruff and weary] "We don't get strangers this time of year."
-[N] He set down the rag slowly.
-[C:Aldric] "What is it you want?"
+VOICE DESCRIPTION RULES — these descriptions are sent directly to an AI voice generator, so they must be rich and specific:
+- Always write a complete sentence, not fragments
+- Describe the sound of the voice itself: pitch, texture, pace, accent, age, emotion
+- Include personality and speaking style
+- Be specific and vivid — generic descriptions produce bad results
+- Examples of GOOD descriptions:
+  [C:Aldric|A deep, gravelly old man's voice with a slow deliberate cadence, weathered by decades of hard living, with a faint northern roughness to his consonants]
+  [C:Mira|A sharp quick young woman's voice, clipped and suspicious, with precise diction and an undercurrent of barely concealed anxiety]
+  [C:The Merchant|A smooth oily middle-aged male voice, overly warm and ingratiating, with a slight eastern lilt and the careful enunciation of someone hiding their accent]
+  [C:Old Hessa|A cracked elderly woman's voice, thin and reedy but surprisingly firm, with long vowels and the unhurried pace of someone who knows they will be heard]
+- Examples of BAD descriptions (too vague, will produce poor results):
+  [C:Aldric|old male gruff]
+  [C:Mira|young female suspicious]
 
 Every line of spoken dialogue must be tagged. Narration between dialogue must be tagged [N]. Never mix narration and dialogue in the same tag. Keep each tag on its own line.`;
 
@@ -1217,19 +1225,8 @@ async function getNpcVoice(name, desc) {
   const { elevenKey } = getSettings();
   if (!elevenKey || !desc) return null;
 
-  // Build natural language voice description from tag format "gender:age:quality"
-  let prompt;
-  if (desc && desc.includes(':')) {
-    const parts = desc.split(':');
-    const gender  = parts[0]?.trim() || 'neutral';
-    const age     = parts[1]?.trim() || 'middle-aged';
-    const quality = parts[2]?.trim() || 'clear and calm';
-    prompt = `${age} ${gender}, ${quality} voice`;
-  } else if (desc) {
-    prompt = desc;
-  } else {
-    prompt = `a clear neutral voice`;
-  }
+  // Claude now supplies a full vivid sentence description — use it directly
+  const prompt = desc || `A clear neutral voice, measured and calm, with natural human warmth`;
 
   // ElevenLabs requires the preview text to be 100-1000 characters
   const previewText = `The road ahead is long, and I have seen much in my time. Listen well, for I will not repeat myself. There are things in this world that defy explanation, and I have witnessed most of them. My name is ${name}, and what I tell you now matters.`;
@@ -1242,6 +1239,10 @@ async function getNpcVoice(name, desc) {
       body: JSON.stringify({
         voice_description: prompt,
         text: previewText,
+        model_id: 'eleven_ttv_v3',       // best quality voice design model
+        should_enhance: true,             // AI expands prompt for better results
+        auto_generate_text: false,        // we supply our own preview text
+        guidance_scale: 4,               // slightly creative, avoids robotic output
       }),
     });
 

@@ -1126,35 +1126,7 @@ async function loadGame(gameId) {
   }
 }
 
-async function warmAllVoicesBackground() {
-  if (!kokoroReady || !kokoroTTS) return;
-  // Small delay so it doesn't compete with page rendering
-  await new Promise(r => setTimeout(r, 1500));
-  console.log('[Chronicle] Background voice warm-up starting...');
-
-  const btn = document.getElementById('prepare-voices-btn');
-
-  for (let i = 0; i < ALL_VOICES.length; i++) {
-    const voice = ALL_VOICES[i];
-    // Update button to show progress
-    if (btn) btn.textContent = `🔊 Warming ${i + 1}/${ALL_VOICES.length}`;
-    try {
-      await kokoroTTS.generate('The road ahead is long.', { voice: voice.id });
-    } catch(e) {}
-    await new Promise(r => setTimeout(r, 50));
-  }
-
-  console.log('[Chronicle] Background voice warm-up complete.');
-  if (btn) {
-    btn.textContent = '✓ Voices Ready';
-    btn.style.color = 'var(--gold)';
-  }
-
-  // Ask SW how many files are now cached and show it
-  if (navigator.serviceWorker?.controller) {
-    navigator.serviceWorker.controller.postMessage('CACHE_SIZE');
-  }
-}
+// warmAllVoicesBackground is now defined in the Kokoro Worker Engine section above
 
 // Listen for cache size reports from the Service Worker
 if ('serviceWorker' in navigator) {
@@ -1448,9 +1420,20 @@ function parseSegments(text) {
 // ═══════════════════════════════════════════════════════════
 // KOKORO TTS — in-browser, free, no API key
 // ═══════════════════════════════════════════════════════════
-let kokoroTTS      = null;   // loaded once, cached forever
-let kokoroLoading  = false;
+// ═══════════════════════════════════════════════════════════
+// KOKORO WEB WORKER ENGINE
+// All TTS generation runs off the main thread so the UI
+// never freezes during model load, warm-up, or synthesis.
+// ═══════════════════════════════════════════════════════════
+
+// Worker state
+let kokoroWorker   = null;
 let kokoroReady    = false;
+let kokoroLoading  = false;
+
+// Pending promise callbacks keyed by request id
+let pendingRequests = {};
+let requestIdCounter = 0;
 
 // Voice pool using Kokoro voice IDs — all 18 English voices
 const VOICE_POOL = {
@@ -1485,51 +1468,211 @@ const VOICE_POOL = {
   ],
 };
 
-// All voices flattened for pre-warming
 const ALL_VOICES = [
   ...VOICE_POOL.male,
   ...VOICE_POOL.female,
   ...VOICE_POOL.neutral,
 ];
 
-async function loadKokoro(onProgress) {
-  if (kokoroReady) return true;
-  if (kokoroLoading) return false;
-  kokoroLoading = true;
-  try {
-    // Dynamic import from jsDelivr CDN
-    const { KokoroTTS } = await import('https://esm.sh/kokoro-js@1.2.1');
-    onProgress && onProgress('Downloading voice model (~86MB)...');
-    kokoroTTS = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
-      dtype: 'q8',
-      device: 'wasm',
-    });
-    kokoroReady = true;
-    kokoroLoading = false;
-    onProgress && onProgress('Voice model ready.');
-    // Pre-warm the narrator voice immediately so first line plays fast
-    const { voiceId } = getSettings();
-    if (voiceId) {
-      try { await kokoroTTS.generate('The road ahead is long.', { voice: voiceId }); } catch(e) {}
+// ── Worker script (runs in separate thread) ──────────────────
+const WORKER_SCRIPT = `
+let tts = null;
+
+self.addEventListener('message', async (e) => {
+  const { type, id, voice, text, voices } = e.data;
+
+  if (type === 'LOAD') {
+    try {
+      self.postMessage({ type: 'PROGRESS', text: 'Downloading voice model (~86MB)...' });
+      const { KokoroTTS } = await import('https://esm.sh/kokoro-js@1.2.1');
+      tts = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+        dtype: 'q8',
+        device: 'wasm',
+      });
+      self.postMessage({ type: 'READY' });
+    } catch(err) {
+      self.postMessage({ type: 'ERROR', text: err.message });
     }
-    return true;
-  } catch(e) {
-    kokoroLoading = false;
-    console.error('[Chronicle] Kokoro load failed:', e);
-    return false;
   }
+
+  else if (type === 'GENERATE') {
+    try {
+      const audio = await tts.generate(text, { voice });
+      const wav = audio.toWav ? audio.toWav() : audio;
+      // Transfer the buffer to avoid copying
+      self.postMessage({ type: 'AUDIO', id, wav: wav.buffer }, [wav.buffer]);
+    } catch(err) {
+      self.postMessage({ type: 'GENERATE_ERROR', id, text: err.message });
+    }
+  }
+
+  else if (type === 'WARM') {
+    // Warm all voices one at a time, reporting progress
+    for (let i = 0; i < voices.length; i++) {
+      try {
+        await tts.generate('The road ahead is long.', { voice: voices[i].id });
+      } catch(e) {}
+      self.postMessage({ type: 'WARM_PROGRESS', index: i, total: voices.length, label: voices[i].label });
+    }
+    self.postMessage({ type: 'WARM_DONE' });
+  }
+});
+`;
+
+// ── Worker lifecycle ─────────────────────────────────────────
+
+function createKokoroWorker() {
+  const blob = new Blob([WORKER_SCRIPT], { type: 'application/javascript' });
+  const url  = URL.createObjectURL(blob);
+  const worker = new Worker(url, { type: 'module' });
+
+  worker.onmessage = (e) => {
+    const msg = e.data;
+
+    if (msg.type === 'READY') {
+      kokoroReady   = true;
+      kokoroLoading = false;
+      // Resolve all pending LOAD promises
+      for (const key of Object.keys(pendingRequests)) {
+        if (key.startsWith('load_')) {
+          pendingRequests[key](true);
+          delete pendingRequests[key];
+        }
+      }
+    }
+
+    else if (msg.type === 'PROGRESS') {
+      // Forward progress text to any registered callback
+      if (pendingRequests['load_progress']) {
+        pendingRequests['load_progress'](msg.text);
+      }
+    }
+
+    else if (msg.type === 'ERROR') {
+      kokoroLoading = false;
+      for (const key of Object.keys(pendingRequests)) {
+        if (key.startsWith('load_')) {
+          pendingRequests[key](false);
+          delete pendingRequests[key];
+        }
+      }
+    }
+
+    else if (msg.type === 'AUDIO') {
+      const cb = pendingRequests[msg.id];
+      if (cb) {
+        cb({ ok: true, wav: new Uint8Array(msg.wav) });
+        delete pendingRequests[msg.id];
+      }
+    }
+
+    else if (msg.type === 'GENERATE_ERROR') {
+      const cb = pendingRequests[msg.id];
+      if (cb) {
+        cb({ ok: false });
+        delete pendingRequests[msg.id];
+      }
+    }
+
+    else if (msg.type === 'WARM_PROGRESS') {
+      const btn = document.getElementById('prepare-voices-btn');
+      if (btn) btn.textContent = `🔊 Warming ${msg.index + 1}/${msg.total}`;
+    }
+
+    else if (msg.type === 'WARM_DONE') {
+      console.log('[Chronicle] Background voice warm-up complete.');
+      const btn = document.getElementById('prepare-voices-btn');
+      if (btn) {
+        btn.textContent = '✓ Voices Ready';
+        btn.style.color = 'var(--gold)';
+      }
+      if (navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage('CACHE_SIZE');
+      }
+    }
+  };
+
+  worker.onerror = (err) => {
+    console.error('[Chronicle] Kokoro worker error:', err);
+    kokoroLoading = false;
+  };
+
+  return worker;
 }
 
-// Pre-warm all voices so they're instant during gameplay
-async function prepareVoices() {
-  // If already warming in background, just show the progress bar
-  const btn  = document.getElementById('prepare-voices-btn');
-  const bar  = document.getElementById('voice-prep-bar');
-  const label = document.getElementById('voice-prep-label');
-  const progress = document.getElementById('voice-prep-progress');
-  const count = document.getElementById('voice-prep-count');
+async function loadKokoro(onProgress) {
+  if (kokoroReady) return true;
+  if (kokoroLoading) {
+    // Already loading — wait for it to finish
+    return new Promise((resolve) => {
+      pendingRequests['load_wait_' + Date.now()] = resolve;
+    });
+  }
 
-  // If already ready, just confirm
+  kokoroLoading = true;
+
+  if (!kokoroWorker) {
+    kokoroWorker = createKokoroWorker();
+  }
+
+  if (onProgress) {
+    pendingRequests['load_progress'] = onProgress;
+  }
+
+  return new Promise((resolve) => {
+    pendingRequests['load_main'] = resolve;
+    kokoroWorker.postMessage({ type: 'LOAD' });
+  });
+}
+
+// Generate audio in the worker — returns a Uint8Array WAV
+function generateAudio(text, voice) {
+  return new Promise((resolve) => {
+    if (!kokoroReady || !kokoroWorker) {
+      resolve({ ok: false });
+      return;
+    }
+    const id = ++requestIdCounter;
+    pendingRequests[id] = resolve;
+    kokoroWorker.postMessage({ type: 'GENERATE', id, text, voice });
+  });
+}
+
+function wavToUrl(wav) {
+  const blob = new Blob([wav], { type: 'audio/wav' });
+  return URL.createObjectURL(blob);
+}
+
+async function speakSegment(text, voiceId) {
+  return new Promise(async (resolve) => {
+    try {
+      const result = await generateAudio(text, voiceId);
+      if (!result.ok) { resolve(); return; }
+      const url = wavToUrl(result.wav);
+      currentAudio = new Audio(url);
+      currentAudio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+      currentAudio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+      await currentAudio.play();
+    } catch(e) {
+      console.warn('[Chronicle] speakSegment error:', e);
+      resolve();
+    }
+  });
+}
+
+async function warmAllVoicesBackground() {
+  if (!kokoroReady || !kokoroWorker) return;
+  await new Promise(r => setTimeout(r, 1500));
+  kokoroWorker.postMessage({ type: 'WARM', voices: ALL_VOICES });
+}
+
+async function prepareVoices() {
+  const btn      = document.getElementById('prepare-voices-btn');
+  const bar      = document.getElementById('voice-prep-bar');
+  const label    = document.getElementById('voice-prep-label');
+  const progress = document.getElementById('voice-prep-progress');
+  const count    = document.getElementById('voice-prep-count');
+
   if (kokoroReady && btn.textContent.includes('Ready')) {
     showSuccess('All voices are already warmed up and ready.');
     return;
@@ -1548,56 +1691,38 @@ async function prepareVoices() {
     return;
   }
 
+  label.textContent = 'Warming voices...';
   const total = ALL_VOICES.length;
-  for (let i = 0; i < total; i++) {
-    const voice = ALL_VOICES[i];
-    count.textContent = `${i} / ${total}`;
-    progress.style.width = `${Math.round((i / total) * 100)}%`;
-    label.textContent = `Warming up ${voice.label}...`;
-    try {
-      await kokoroTTS.generate('The road ahead is long.', { voice: voice.id });
-    } catch(e) {}
-  }
 
-  progress.style.width = '100%';
-  count.textContent = `${total} / ${total}`;
-  label.textContent = 'All voices ready!';
-  btn.textContent = '✓ Voices Ready';
-  btn.style.color = 'var(--gold)';
-  btn.disabled = false;
-  setTimeout(() => { bar.style.display = 'none'; }, 3000);
-}
-
-// Convert Kokoro AudioData to a playable blob URL
-function kokoroAudioToUrl(audio) {
-  // audio.toWav() returns a Uint8Array WAV buffer
-  const wav = audio.toWav ? audio.toWav() : audio;
-  const blob = new Blob([wav], { type: 'audio/wav' });
-  return URL.createObjectURL(blob);
-}
-
-async function speakSegment(text, voiceId) {
-  if (!kokoroReady || !kokoroTTS) return;
-  return new Promise(async (resolve) => {
-    try {
-      const audio = await kokoroTTS.generate(text, { voice: voiceId });
-      const url = kokoroAudioToUrl(audio);
-      currentAudio = new Audio(url);
-      currentAudio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-      currentAudio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-      await currentAudio.play();
-    } catch(e) {
-      console.warn('[Chronicle] speakSegment error:', e);
-      resolve();
+  // Override WARM_PROGRESS handler to also update the progress bar
+  const origOnMessage = kokoroWorker.onmessage;
+  kokoroWorker.onmessage = (e) => {
+    origOnMessage(e);
+    if (e.data.type === 'WARM_PROGRESS') {
+      const i = e.data.index;
+      count.textContent = `${i + 1} / ${total}`;
+      progress.style.width = `${Math.round(((i + 1) / total) * 100)}%`;
+      label.textContent = `Warming up ${e.data.label}...`;
     }
-  });
+    if (e.data.type === 'WARM_DONE') {
+      progress.style.width = '100%';
+      count.textContent = `${total} / ${total}`;
+      label.textContent = 'All voices ready!';
+      btn.textContent = '✓ Voices Ready';
+      btn.style.color = 'var(--gold)';
+      btn.disabled = false;
+      setTimeout(() => { bar.style.display = 'none'; }, 3000);
+      kokoroWorker.onmessage = origOnMessage; // restore
+    }
+  };
+
+  kokoroWorker.postMessage({ type: 'WARM', voices: ALL_VOICES });
 }
 
 async function speakText(text) {
   const { voiceId: narratorVoiceId } = getSettings();
   if (!narratorVoiceId) return;
 
-  // Load Kokoro if not ready yet
   if (!kokoroReady) {
     const indicator = appendSpeakingIndicator();
     document.getElementById('voice-btn').classList.add('speaking');
@@ -1627,13 +1752,11 @@ async function speakText(text) {
 
   try {
     const segments = parseSegments(text);
-
     if (segments.length === 0 || segments.every(s => s.type === 'narrator')) {
       await speakSegment(text, narratorVoiceId);
       cleanup();
       return;
     }
-
     for (const seg of segments) {
       if (!document.getElementById('voice-btn').classList.contains('speaking')) break;
       let segVoice = narratorVoiceId;
@@ -2019,9 +2142,15 @@ async function previewNarratorVoice() {
   status.textContent = `Generating ${voiceId}...`;
 
   try {
-    const audio = await kokoroTTS.generate(PREVIEW_TEXT, { voice: voiceId });
-    const wav = audio.toWav ? audio.toWav() : audio;
-    const url = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
+    const result = await generateAudio(PREVIEW_TEXT, voiceId);
+    if (!result.ok) {
+      btn.disabled = false;
+      btn.textContent = '▶ Preview';
+      btn.style.background = 'var(--ember-dim)';
+      status.textContent = 'Preview failed — voice may not be available.';
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([result.wav], { type: 'audio/wav' }));
 
     previewAudio = new Audio(url);
     btn.disabled = false;

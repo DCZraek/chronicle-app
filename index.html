@@ -506,7 +506,21 @@ CITY COMMANDER SYSTEM
 The player may command a city. Track: treasury, military, infrastructure, agriculture, manufacturing, population, defenses. World runs on seasonal cycle. Surface info through steward reports — never raw data.
 
 MERCHANT COMPANY SYSTEM
-Player may operate a merchant enterprise. Track: funds, trade routes, inventory, investments, reputation, employees. Surface through agents reporting in character.`;
+Player may operate a merchant enterprise. Track: funds, trade routes, inventory, investments, reputation, employees. Surface through agents reporting in character.
+
+SPEECH TAGGING — CRITICAL
+Every response must tag spoken dialogue and narration using this exact format:
+[N] for narrator/description text
+[C:Name|gender:age:quality] for the FIRST TIME a character speaks (gender: male/female/neutral, age: young/middle/old, quality: e.g. gruff, warm, sharp, weary, imperious, lilting)
+[C:Name] for all subsequent lines from the same character once introduced
+
+Example:
+[N] The innkeeper wiped down the bar without looking up.
+[C:Aldric|male:old:gruff and weary] "We don't get strangers this time of year."
+[N] He set down the rag slowly.
+[C:Aldric] "What is it you want?"
+
+Every line of spoken dialogue must be tagged. Narration between dialogue must be tagged [N]. Never mix narration and dialogue in the same tag. Keep each tag on its own line.`;
 
 const INTERVIEW_SYSTEM = `You are setting up a new fantasy RPG campaign. Interview the player to understand their desired world and character, then generate complete GM Bible documents.
 
@@ -788,6 +802,7 @@ let activeGameId   = null;
 let activeFileShas = {};
 let messageHistory = [];
 let isThinking     = false;
+let npcVoices      = {};   // { "Name": { voiceId, description } }
 
 async function loadGame(gameId) {
   showScreen('game');
@@ -798,7 +813,7 @@ async function loadGame(gameId) {
   setOrb('thinking');
 
   try {
-    const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json'];
+    const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json','npc-voices.json'];
     const loaded = {};
     await Promise.all(fileNames.map(async f => {
       const d = await ghRead(`saves/${gameId}/${f}`);
@@ -812,6 +827,12 @@ async function loadGame(gameId) {
         document.getElementById('game-title').textContent    = m.name      || 'The Chronicle';
         document.getElementById('game-subtitle').textContent = m.character || 'Session Active';
       } catch(e) {}
+    }
+
+    // Restore NPC voices
+    npcVoices = {};
+    if (loaded['npc-voices.json']) {
+      try { npcVoices = JSON.parse(loaded['npc-voices.json'].content); } catch(e) {}
     }
 
     // Restore history or seed with world context
@@ -881,6 +902,11 @@ async function saveToGitHub() {
   const histJson = JSON.stringify(messageHistory, null, 2);
   const r = await ghWrite(`saves/${activeGameId}/chat-history.json`, histJson, activeFileShas['chat-history.json'] || null);
   if (r?.content?.sha) activeFileShas['chat-history.json'] = r.content.sha;
+
+  // Save NPC voices
+  const voicesJson = JSON.stringify(npcVoices, null, 2);
+  const vr = await ghWrite(`saves/${activeGameId}/npc-voices.json`, voicesJson, activeFileShas['npc-voices.json'] || null);
+  if (vr?.content?.sha) activeFileShas['npc-voices.json'] = vr.content.sha;
 
   try {
     const metaFile = await ghRead(`saves/${activeGameId}/meta.json`);
@@ -1112,31 +1138,166 @@ function stopAudio() {
   mediaSource = null; sourceBuffer = null; audioQueue = [];
 }
 
+// ── Parse tagged GM response into segments ──────────────────
+function parseSegments(text) {
+  const lines = text.split(/\n/);
+  const segments = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    // [N] narrator line
+    const narratorMatch = line.match(/^\[N\]\s*(.+)$/);
+    if (narratorMatch) { segments.push({ type: 'narrator', text: narratorMatch[1] }); continue; }
+    // [C:Name|desc] first appearance
+    const charNewMatch = line.match(/^\[C:([^|\]]+)\|([^\]]+)\]\s*(.+)$/);
+    if (charNewMatch) { segments.push({ type: 'character', name: charNewMatch[1].trim(), desc: charNewMatch[2].trim(), text: charNewMatch[3] }); continue; }
+    // [C:Name] known character
+    const charMatch = line.match(/^\[C:([^\]]+)\]\s*(.+)$/);
+    if (charMatch) { segments.push({ type: 'character', name: charMatch[1].trim(), text: charMatch[2] }); continue; }
+    // Untagged — treat as narrator
+    segments.push({ type: 'narrator', text: line });
+  }
+  return segments;
+}
+
+// ── Get or create a voice for an NPC ────────────────────────
+async function getNpcVoice(name, desc) {
+  if (npcVoices[name]) return npcVoices[name].voiceId;
+  const { elevenKey } = getSettings();
+  if (!elevenKey || !desc) return null;
+
+  // Build a clean voice description for ElevenLabs
+  // desc format: "gender:age:quality" e.g. "male:old:gruff and weary"
+  const parts = desc.split(':');
+  const gender  = parts[0] || 'neutral';
+  const age     = parts[1] || 'middle-aged';
+  const quality = parts[2] || 'clear and calm';
+  const prompt  = `A ${age} ${gender} voice, ${quality}. Fantasy character named ${name}.`;
+
+  try {
+    // Step 1: Generate voice preview
+    const previewRes = await fetch('https://api.elevenlabs.io/v1/text-to-voice/create-previews', {
+      method: 'POST',
+      headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        voice_description: prompt,
+        text: `Greetings. My name is ${name}. I have something important to tell you.`,
+      }),
+    });
+
+    if (!previewRes.ok) {
+      console.warn(`[Chronicle] Voice design API not available (${previewRes.status}) — using narrator voice for ${name}`);
+      return null;
+    }
+
+    const previewData = await previewRes.json();
+    const previewId = previewData?.previews?.[0]?.generated_voice_id;
+    if (!previewId) return null;
+
+    // Step 2: Save to library
+    const saveRes = await fetch('https://api.elevenlabs.io/v1/text-to-voice/create-voice-from-preview', {
+      method: 'POST',
+      headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        voice_name: `Chronicle — ${name}`,
+        voice_description: prompt,
+        generated_voice_id: previewId,
+      }),
+    });
+
+    if (!saveRes.ok) return null;
+    const saveData = await saveRes.json();
+    const voiceId = saveData?.voice_id;
+    if (!voiceId) return null;
+
+    // Cache it
+    npcVoices[name] = { voiceId, description: desc };
+    console.log(`[Chronicle] Created voice for ${name}: ${voiceId}`);
+    return voiceId;
+
+  } catch(e) {
+    console.warn(`[Chronicle] Voice creation failed for ${name}:`, e);
+    return null;
+  }
+}
+
+// ── Speak a single segment with correct voice ────────────────
+async function speakSegment(text, voiceIdToUse) {
+  const { elevenKey } = getSettings();
+  return new Promise(async (resolve) => {
+    try {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceIdToUse}/stream`, {
+        method: 'POST',
+        headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          model_id: TTS_MODEL,
+          voice_settings: { stability: 0.60, similarity_boost: 0.50, style: 0.10, use_speaker_boost: false },
+        }),
+      });
+      if (!res.ok) { resolve(); return; }
+      const canStream = window.MediaSource && MediaSource.isTypeSupported('audio/mpeg');
+      if (canStream) await streamMediaSource(res, resolve);
+      else           await streamBlob(res, resolve);
+    } catch(e) { resolve(); }
+  });
+}
+
+// ── Main speakText — orchestrates all segments ───────────────
 async function speakText(text) {
-  const { elevenKey, voiceId } = getSettings();
-  if (!elevenKey || !voiceId) return;
+  const { elevenKey, voiceId: narratorVoiceId } = getSettings();
+  if (!elevenKey || !narratorVoiceId) return;
+
   stopAudio();
   const indicator = appendSpeakingIndicator();
   document.getElementById('voice-btn').classList.add('speaking');
   document.getElementById('input-hint').textContent = '🔊 Speaking... tap 🎤 to stop';
+
   const cleanup = () => {
     indicator.remove();
     document.getElementById('voice-btn').classList.remove('speaking');
     document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
   };
+
   try {
-    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
-      method: 'POST',
-      headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text, model_id: TTS_MODEL,
-        voice_settings: { stability: 0.60, similarity_boost: 0.50, style: 0.10, use_speaker_boost: false },
-      }),
-    });
-    if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
-    const canStream = window.MediaSource && MediaSource.isTypeSupported('audio/mpeg');
-    if (canStream) await streamMediaSource(res, cleanup);
-    else           await streamBlob(res, cleanup);
+    const segments = parseSegments(text);
+
+    // If no tags found, fall back to speaking full text as narrator
+    if (segments.length === 0 || segments.every(s => s.type === 'narrator')) {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${narratorVoiceId}/stream`, {
+        method: 'POST',
+        headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          model_id: TTS_MODEL,
+          voice_settings: { stability: 0.60, similarity_boost: 0.50, style: 0.10, use_speaker_boost: false },
+        }),
+      });
+      if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
+      const canStream = window.MediaSource && MediaSource.isTypeSupported('audio/mpeg');
+      if (canStream) await streamMediaSource(res, cleanup);
+      else           await streamBlob(res, cleanup);
+      return;
+    }
+
+    // Play segments in sequence
+    for (const seg of segments) {
+      // Check if user stopped playback mid-sequence
+      if (!document.getElementById('voice-btn').classList.contains('speaking')) break;
+
+      let segVoiceId = narratorVoiceId;
+
+      if (seg.type === 'character') {
+        // Get or create NPC voice
+        const npcId = await getNpcVoice(seg.name, seg.desc || null);
+        segVoiceId = npcId || narratorVoiceId;
+      }
+
+      await speakSegment(seg.text, segVoiceId);
+    }
+
+    cleanup();
+
   } catch(e) {
     cleanup();
     if (!e.message?.includes('aborted')) showError('Voice failed. Check ElevenLabs key.');

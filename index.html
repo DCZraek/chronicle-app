@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Chronicle</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;1,300;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --parchment:  #f5efe0;
+  --parchment2: #ede4cc;
+  --ember:      #c8622a;
+  --ember-dim:  #7a3a18;
+  --gold:       #b8922a;
+  --gold-dim:   #6b5218;
+  --smoke:      #2a2520;
+  --ash:        #4a4540;
+  --fog:        #1a1710;
+  --deep:       #0d0b08;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%; background: var(--fog); color: var(--parchment);
+  font-family: 'Crimson Pro', Georgia, serif; font-size: 18px;
+  line-height: 1.75; overflow: hidden;
+}
+body::before {
+  content: ''; position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(200,98,42,0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 40% at 20% 100%, rgba(184,146,42,0.04) 0%, transparent 60%);
+  pointer-events: none; z-index: 0;
+}
+
+/* SCREENS */
+.screen {
+  position: fixed; inset: 0; z-index: 10;
+  display: none; flex-direction: column;
+  background: var(--fog); animation: fade-in 0.4s ease;
+}
+.screen.active { display: flex; }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* SHARED */
+.top-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid rgba(184,146,42,0.18); flex-shrink: 0;
+}
+.top-bar-title {
+  font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 600;
+  letter-spacing: 0.18em; color: var(--gold); text-transform: uppercase;
+}
+.top-bar-sub {
+  font-size: 0.7rem; letter-spacing: 0.1em;
+  color: var(--ash); text-transform: uppercase; margin-top: 2px;
+}
+.icon-btn {
+  background: none; border: none; color: var(--ash); cursor: pointer;
+  padding: 6px; border-radius: 3px; transition: color 0.2s;
+  font-family: 'Cinzel', serif; font-size: 0.72rem;
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.icon-btn:hover { color: var(--parchment); }
+.field-label {
+  display: block; font-family: 'Cinzel', serif; font-size: 0.68rem;
+  letter-spacing: 0.12em; color: var(--gold-dim);
+  text-transform: uppercase; margin-bottom: 6px;
+}
+.field-input {
+  width: 100%; background: var(--deep);
+  border: 1px solid rgba(184,146,42,0.2); border-radius: 3px;
+  color: var(--parchment); font-family: 'Crimson Pro', Georgia, serif;
+  font-size: 1rem; padding: 11px 14px; outline: none;
+  transition: border-color 0.2s;
+}
+.field-input:focus { border-color: rgba(184,146,42,0.5); }
+.field-input::placeholder { color: var(--ash); font-style: italic; }
+.primary-btn {
+  background: var(--ember-dim); border: 1px solid var(--ember);
+  border-radius: 3px; color: var(--parchment);
+  font-family: 'Cinzel', serif; font-size: 0.75rem;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 13px 24px; cursor: pointer; transition: background 0.2s; width: 100%;
+}
+.primary-btn:hover:not(:disabled) { background: var(--ember); }
+.primary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ghost-btn {
+  background: none; border: 1px solid rgba(184,146,42,0.22);
+  border-radius: 3px; color: var(--ash);
+  font-family: 'Cinzel', serif; font-size: 0.72rem;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 10px 20px; cursor: pointer; transition: all 0.2s;
+}
+.ghost-btn:hover { border-color: rgba(184,146,42,0.5); color: var(--parchment); }
+.scrollable {
+  flex: 1; overflow-y: auto; padding: 24px;
+}
+.scrollable::-webkit-scrollbar { width: 4px; }
+.scrollable::-webkit-scrollbar-track { background: transparent; }
+.scrollable::-webkit-scrollbar-thumb { background: var(--ember-dim); border-radius: 2px; }
+
+/* TOASTS */
+#error-toast, #success-toast {
+  position: fixed; bottom: 80px; left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  border-radius: 3px; font-size: 0.85rem; padding: 10px 20px;
+  opacity: 0; transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none; z-index: 999; max-width: 380px; text-align: center;
+}
+#error-toast { background: #5a1a1a; border: 1px solid #8a3030; color: #f0c0c0; }
+#success-toast { background: #1a3a1a; border: 1px solid #3a7a3a; color: #a0e0a0; }
+#error-toast.show, #success-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* SETTINGS SCREEN */
+#screen-settings .scrollable {
+  display: flex; flex-direction: column; gap: 20px;
+  max-width: 520px; margin: 0 auto; padding: 32px 24px;
+}
+.settings-intro { text-align: center; padding: 8px 0 16px; }
+.settings-intro .rune {
+  font-family: 'Cinzel', serif; font-size: 2.2rem;
+  color: var(--gold-dim); display: block; margin-bottom: 10px;
+}
+.settings-intro h2 {
+  font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 400;
+  letter-spacing: 0.14em; color: var(--gold); text-transform: uppercase; margin-bottom: 8px;
+}
+.settings-intro p { font-size: 0.88rem; color: var(--ash); font-style: italic; line-height: 1.7; }
+.settings-section {
+  border: 1px solid rgba(184,146,42,0.12); border-radius: 4px;
+  padding: 20px; display: flex; flex-direction: column; gap: 14px;
+}
+.settings-section-title {
+  font-family: 'Cinzel', serif; font-size: 0.7rem; letter-spacing: 0.14em;
+  color: var(--gold-dim); text-transform: uppercase;
+  border-bottom: 1px solid rgba(184,146,42,0.12); padding-bottom: 10px;
+}
+.settings-hint { font-size: 0.78rem; color: var(--ash); font-style: italic; line-height: 1.6; }
+
+/* LIBRARY SCREEN */
+#screen-library .scrollable { padding: 20px 20px 100px; }
+.library-grid { display: flex; flex-direction: column; gap: 12px; max-width: 620px; margin: 0 auto; }
+.game-card {
+  background: rgba(26,23,16,0.7); border: 1px solid rgba(184,146,42,0.18);
+  border-radius: 4px; padding: 18px 20px; cursor: pointer;
+  transition: all 0.2s; display: flex; align-items: center; gap: 16px;
+}
+.game-card:hover { border-color: rgba(184,146,42,0.4); background: rgba(42,37,32,0.8); }
+.game-card-accent { width: 4px; min-height: 52px; border-radius: 2px; flex-shrink: 0; }
+.game-card-body { flex: 1; min-width: 0; }
+.game-card-name {
+  font-family: 'Cinzel', serif; font-size: 0.95rem; font-weight: 600;
+  color: var(--parchment); margin-bottom: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.game-card-meta { font-size: 0.78rem; color: var(--ash); font-style: italic; }
+.game-card-arrow { color: var(--gold-dim); font-size: 1.2rem; flex-shrink: 0; }
+.new-game-card {
+  background: none; border: 1px dashed rgba(184,146,42,0.25);
+  border-radius: 4px; padding: 18px 20px; cursor: pointer;
+  transition: all 0.2s; display: flex; align-items: center; gap: 14px; color: var(--ash);
+}
+.new-game-card:hover { border-color: rgba(184,146,42,0.5); color: var(--parchment); }
+.new-game-card-icon {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid currentColor; display: flex;
+  align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;
+}
+.new-game-card-label {
+  font-family: 'Cinzel', serif; font-size: 0.8rem;
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.library-loading { text-align: center; padding: 60px 20px; color: var(--ash); font-style: italic; font-size: 0.9rem; }
+
+/* INTERVIEW SCREEN */
+#screen-interview { max-width: 680px; margin: 0 auto; width: 100%; }
+#screen-interview .scrollable { padding: 20px 24px 120px; display: flex; flex-direction: column; gap: 20px; }
+.interview-msg { opacity: 0; animation: fade-in 0.5s ease forwards; }
+.interview-gm {
+  border-left: 2px solid var(--ember-dim); padding-left: 18px;
+  font-size: 1rem; font-weight: 300; color: var(--parchment); line-height: 1.85;
+}
+.interview-player { display: flex; justify-content: flex-end; }
+.interview-player .bubble {
+  background: rgba(42,37,32,0.8); border: 1px solid rgba(184,146,42,0.18);
+  border-radius: 3px 3px 0 3px; padding: 10px 16px; max-width: 75%;
+  font-size: 0.92rem; color: var(--parchment2); font-style: italic;
+}
+.interview-input-area {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(transparent, var(--fog) 30%);
+  padding: 20px 24px 24px; max-width: 680px; margin: 0 auto;
+}
+.interview-input-row { display: flex; gap: 10px; align-items: flex-end; }
+.interview-generating {
+  text-align: center; padding: 40px;
+  font-family: 'Cinzel', serif; font-size: 0.8rem;
+  letter-spacing: 0.12em; color: var(--gold-dim); text-transform: uppercase;
+}
+.dots span { animation: blink 1.4s ease-in-out infinite; }
+.dots span:nth-child(2) { animation-delay: 0.2s; }
+.dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%,80%,100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+/* GAME SCREEN */
+#screen-game { max-width: 860px; margin: 0 auto; width: 100%; }
+#narration {
+  flex: 1; overflow-y: auto; padding: 28px 32px;
+  display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth;
+}
+#narration::-webkit-scrollbar { width: 4px; }
+#narration::-webkit-scrollbar-track { background: transparent; }
+#narration::-webkit-scrollbar-thumb { background: var(--ember-dim); border-radius: 2px; }
+.welcome { text-align: center; padding: 50px 20px; opacity: 0; animation: fade-in 1s ease forwards 0.3s; }
+.welcome-rune { font-family: 'Cinzel', serif; font-size: 2.4rem; color: var(--gold-dim); display: block; margin-bottom: 14px; }
+.welcome h2 { font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 400; letter-spacing: 0.14em; color: var(--gold); text-transform: uppercase; margin-bottom: 10px; }
+.welcome p { color: var(--ash); font-style: italic; font-size: 0.92rem; max-width: 400px; margin: 0 auto; }
+.msg { opacity: 0; animation: fade-in 0.5s ease forwards; }
+.msg-player { display: flex; justify-content: flex-end; }
+.msg-player .bubble {
+  background: rgba(42,37,32,0.8); border: 1px solid rgba(184,146,42,0.18);
+  border-radius: 3px 3px 0 3px; padding: 11px 16px; max-width: 72%;
+  font-size: 0.9rem; color: var(--parchment2); font-style: italic;
+}
+.msg-gm .narrative {
+  font-size: 1rem; color: var(--parchment); font-weight: 300; line-height: 1.88;
+  border-left: 2px solid var(--ember-dim); padding-left: 18px; white-space: pre-wrap;
+}
+.typing-indicator {
+  display: flex; align-items: center; gap: 6px; padding-left: 20px;
+  opacity: 0; animation: fade-in 0.3s ease forwards;
+}
+.typing-indicator span {
+  font-family: 'Cinzel', serif; font-size: 0.68rem;
+  letter-spacing: 0.1em; color: var(--ember-dim); text-transform: uppercase;
+}
+.dot { width: 4px; height: 4px; border-radius: 50%; background: var(--ember-dim); animation: bounce 1.2s ease-in-out infinite; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce { 0%,80%,100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-5px); opacity: 1; } }
+.speaking-indicator {
+  display: flex; align-items: center; gap: 8px; padding-left: 20px;
+  opacity: 0; animation: fade-in 0.3s ease forwards;
+}
+.speaking-indicator span {
+  font-family: 'Cinzel', serif; font-size: 0.68rem;
+  letter-spacing: 0.1em; color: var(--gold-dim); text-transform: uppercase;
+}
+.wave-bar { width: 3px; background: var(--gold-dim); border-radius: 2px; animation: wave 1s ease-in-out infinite; }
+.wave-bar:nth-child(1) { height: 8px; animation-delay: 0s; }
+.wave-bar:nth-child(2) { height: 14px; animation-delay: 0.15s; }
+.wave-bar:nth-child(3) { height: 10px; animation-delay: 0.3s; }
+.wave-bar:nth-child(4) { height: 16px; animation-delay: 0.1s; }
+.wave-bar:nth-child(5) { height: 8px; animation-delay: 0.25s; }
+@keyframes wave { 0%,100% { transform: scaleY(0.5); opacity: 0.5; } 50% { transform: scaleY(1.3); opacity: 1; } }
+.game-divider { height: 1px; background: linear-gradient(90deg, transparent, rgba(184,146,42,0.18), transparent); flex-shrink: 0; margin: 0 24px; }
+#input-area { flex-shrink: 0; padding: 16px 24px 20px; display: flex; flex-direction: column; gap: 10px; }
+.input-row { display: flex; align-items: flex-end; gap: 10px; }
+#player-input {
+  flex: 1; background: rgba(26,23,16,0.9);
+  border: 1px solid rgba(184,146,42,0.22); border-radius: 3px;
+  color: var(--parchment); font-family: 'Crimson Pro', Georgia, serif;
+  font-size: 1rem; line-height: 1.6; padding: 11px 14px;
+  resize: none; min-height: 50px; max-height: 130px; outline: none;
+  transition: border-color 0.25s;
+}
+#player-input:focus { border-color: rgba(184,146,42,0.5); }
+#player-input::placeholder { color: var(--ash); font-style: italic; }
+.voice-btn {
+  width: 50px; height: 50px; flex-shrink: 0;
+  background: rgba(26,23,16,0.9); border: 1px solid rgba(184,146,42,0.22);
+  border-radius: 3px; color: var(--ash); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+}
+.voice-btn:hover { border-color: rgba(184,146,42,0.5); color: var(--parchment); }
+.voice-btn.listening { border-color: var(--ember); color: var(--ember); animation: pulse-ring 1.4s ease-in-out infinite; }
+.voice-btn.speaking { border-color: var(--gold); color: var(--gold); }
+@keyframes pulse-ring { 0%,100% { box-shadow: 0 0 0 3px rgba(200,98,42,0.15); } 50% { box-shadow: 0 0 0 7px rgba(200,98,42,0.06); } }
+.send-btn {
+  background: var(--ember-dim); border: 1px solid var(--ember); border-radius: 3px;
+  color: var(--parchment); font-family: 'Cinzel', serif; font-size: 0.68rem;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 0 18px; height: 50px; cursor: pointer; transition: background 0.2s; white-space: nowrap; flex-shrink: 0;
+}
+.send-btn:hover:not(:disabled) { background: var(--ember); }
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.input-footer { display: flex; justify-content: space-between; align-items: center; }
+.input-hint { font-size: 0.7rem; color: var(--ash); letter-spacing: 0.05em; font-style: italic; }
+#msg-counter { font-size: 0.68rem; color: var(--ash); letter-spacing: 0.06em; opacity: 0.6; }
+.status-orb { width: 8px; height: 8px; border-radius: 50%; background: var(--ash); transition: background 0.4s, box-shadow 0.4s; }
+.status-orb.ready { background: var(--ember); box-shadow: 0 0 5px var(--ember); }
+.status-orb.thinking { background: var(--gold); box-shadow: 0 0 8px var(--gold); animation: pulse-orb 1.2s ease-in-out infinite; }
+.status-orb.saving { background: #4a9a4a; box-shadow: 0 0 8px #4a9a4a; }
+@keyframes pulse-orb { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+</style>
+</head>
+<body>
+
+<div id="error-toast"></div>
+<div id="success-toast"></div>
+
+<!-- SETTINGS -->
+<div id="screen-settings" class="screen">
+  <div class="top-bar">
+    <div>
+      <div class="top-bar-title">The Chronicle</div>
+      <div class="top-bar-sub" id="settings-subtitle">First Time Setup</div>
+    </div>
+  </div>
+  <div class="scrollable">
+    <div class="settings-intro">
+      <span class="rune">✦</span>
+      <h2>Welcome, Chronicler</h2>
+      <p>Enter your API keys below. They are stored only in this browser and never leave your device.</p>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-title">Anthropic — Story Intelligence</div>
+      <div>
+        <label class="field-label">API Key</label>
+        <input class="field-input" type="password" id="s-anthropic" placeholder="sk-ant-..." autocomplete="off" />
+      </div>
+      <div class="settings-hint">Get this from console.anthropic.com → API Keys</div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-title">ElevenLabs — Voice Narration</div>
+      <div>
+        <label class="field-label">API Key</label>
+        <input class="field-input" type="password" id="s-eleven" placeholder="sk_..." autocomplete="off" />
+      </div>
+      <div>
+        <label class="field-label">Voice ID</label>
+        <input class="field-input" type="text" id="s-voice" placeholder="e.g. 8dEUmyPMdDdK91vboYih" autocomplete="off" />
+      </div>
+      <div class="settings-hint">Get your key from elevenlabs.io → Profile. Find Voice IDs in the Voice Library.</div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-section-title">GitHub — Save File Sync</div>
+      <div>
+        <label class="field-label">Personal Access Token</label>
+        <input class="field-input" type="password" id="s-github" placeholder="ghp_..." autocomplete="off" />
+      </div>
+      <div class="settings-hint">Your saves live at github.com/DCZraek/chronicle-saves — token needs repo scope.</div>
+    </div>
+    <button class="primary-btn" onclick="saveSettings()">Save & Enter the Chronicle</button>
+    <div id="settings-back" style="display:none; text-align:center; margin-top:4px;">
+      <button class="ghost-btn" onclick="showLibrary()">← Back to Library</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIBRARY -->
+<div id="screen-library" class="screen">
+  <div class="top-bar">
+    <div>
+      <div class="top-bar-title">The Chronicle</div>
+      <div class="top-bar-sub">Your Stories</div>
+    </div>
+    <button class="icon-btn" onclick="openSettingsFromLibrary()">⚙ Keys</button>
+  </div>
+  <div class="scrollable">
+    <div class="library-grid" id="library-grid">
+      <div class="library-loading">Retrieving your chronicles...</div>
+    </div>
+  </div>
+</div>
+
+<!-- INTERVIEW -->
+<div id="screen-interview" class="screen">
+  <div class="top-bar">
+    <div>
+      <div class="top-bar-title">New Chronicle</div>
+      <div class="top-bar-sub">The GM listens</div>
+    </div>
+    <button class="icon-btn" onclick="showLibrary()">✕ Cancel</button>
+  </div>
+  <div class="scrollable" id="interview-messages"></div>
+  <div class="interview-input-area">
+    <div class="interview-input-row">
+      <textarea class="field-input" id="interview-input"
+        placeholder="Answer here..." rows="1"
+        style="resize:none; min-height:50px; max-height:120px;"
+        onkeydown="handleInterviewKey(event)" oninput="autoResize(this)"></textarea>
+      <button class="send-btn" id="interview-send-btn" onclick="sendInterviewAnswer()" style="height:50px;" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- GAME -->
+<div id="screen-game" class="screen">
+  <div class="top-bar">
+    <div>
+      <div class="top-bar-title" id="game-title">The Chronicle</div>
+      <div class="top-bar-sub" id="game-subtitle">Session Active</div>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <div class="status-orb ready" id="status-orb"></div>
+      <button class="icon-btn" onclick="exitGame()">✕ Exit</button>
+    </div>
+  </div>
+  <div id="narration">
+    <div class="welcome">
+      <span class="welcome-rune">✦</span>
+      <h2>The world stirs</h2>
+      <p>Speak your first action. The GM is listening.</p>
+    </div>
+  </div>
+  <div class="game-divider"></div>
+  <div id="input-area">
+    <div class="input-row">
+      <button class="voice-btn" id="voice-btn" onclick="toggleVoice()">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+      <textarea id="player-input" placeholder="Tap the mic or type your action..."
+        rows="1" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendMessage()">Send</button>
+    </div>
+    <div class="input-footer">
+      <span class="input-hint" id="input-hint">Tap 🎤 to speak · Enter to send</span>
+      <span id="msg-counter">0 / 15</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const GITHUB_REPO   = 'DCZraek/chronicle-saves';
+const MODEL         = 'claude-sonnet-4-20250514';
+const TTS_MODEL     = 'eleven_multilingual_v2';
+const MAX_MESSAGES  = 15;
+const ACCENT_COLORS = ['#8a3a2a','#2a5a8a','#3a7a3a','#7a3a7a','#7a6a2a','#2a6a7a','#8a6a3a','#4a3a8a'];
+
+const GM_SYSTEM_PROMPT = `You are the Game Master of a living, breathing fantasy world. You are a novelist first and a game master second. Your narration is literary, atmospheric, and immersive — rich with sensory detail, distinct character voices, and emotional weight. You never break the fourth wall. You never present numbered choices or menus. You never reference game mechanics, dice, stats, or systems. Everything the player experiences reads like a chapter in a novel.
+You end every response by describing the scene the player finds themselves in and letting silence hang — waiting for them to act. You never ask "what do you do." You simply leave the world open and alive around them.
+
+WORLD PHILOSOPHY
+This world is brutal, logical, and indifferent. It does not bend to accommodate the player. Consequences are real and permanent. NPCs have their own agendas, memories, and limits. A king does not grant audiences to strangers. A wounded arm does not heal in a day. A betrayed ally does not forget. The world operates on internal consistency above all else.
+Telegraph danger honestly. When a situation is lethal, the narration must contain clues. The player should always have the opportunity to read the signs and act wisely. But if they ignore the warnings, honor the consequences fully.
+
+PLAYER AGENCY
+The player has absolute freedom. Never present options, never suggest actions, never nudge toward a correct path. Never act on the player's behalf for significant decisions. Never have their character speak, react emotionally, or make choices without explicit player input.
+
+RESOLUTION SYSTEM (HIDDEN)
+Maintain an internal model of the player character's abilities, skills, knowledge, and physical condition. Never reveal numbers or mechanical language.
+Trivial encounters — resolved through pure narrative logic. Challenging encounters — invoke hidden probability weighted by abilities, preparation, circumstances. Extraordinary encounters — major antagonists, pivotal moments — use tightest margins. The player should never distinguish when chance was involved.
+
+CHARACTER GROWTH
+Growth through narrative milestones, not experience points. Track internally and reflect in how challenges resolve over time.
+
+DEATH AND CONSEQUENCES
+Death is real. Do not fudge outcomes. When death occurs, narrate it fully. Then write: "The thread unravels..." Reset to the last meaningful decision point.
+
+RESOURCE AWARENESS
+Track important resources when context demands it. Water in a desert. Food on a long march. Coin after a major purchase. Arrows in prolonged battle.
+
+CITY COMMANDER SYSTEM
+The player may command a city. Track: treasury, military, infrastructure, agriculture, manufacturing, population, defenses. World runs on seasonal cycle. Surface info through steward reports — never raw data.
+
+MERCHANT COMPANY SYSTEM
+Player may operate a merchant enterprise. Track: funds, trade routes, inventory, investments, reputation, employees. Surface through agents reporting in character.`;
+
+const INTERVIEW_SYSTEM = `You are setting up a new fantasy RPG campaign. Interview the player to understand their desired world and character, then generate complete GM Bible documents.
+
+Ask questions ONE AT A TIME in a warm, literary tone. Each question should feel like a master storyteller drawing out a tale. Ask about:
+1. The tone and feel of the world (dark and brutal, heroic, political, mysterious, etc.)
+2. The setting (medieval, ancient, far-future fantasy, etc.)
+3. Who the player character is — name, background, what defines them
+4. What the character is good at and what they struggle with
+5. Whether they command anything (city, army, ship, merchant company)
+6. What brought them to where the story begins
+7. One secret or wound the character carries
+
+After receiving answers to all 7 questions, write this exact line alone on its own line:
+[INTERVIEW_COMPLETE]
+
+Then immediately output a valid JSON object — no markdown, no backticks, just raw JSON — with these exact keys:
+{"gameName":"...","characterName":"...","worldState":"...","characterSheet":"...","npcDossier":"...","questLog":"...","cityLedger":"...","sessionSummary":"..."}
+
+Make each value a rich detailed document. worldState: world overview, politics, where the character begins. characterSheet: appearance, abilities, background, equipment, strengths, weaknesses. npcDossier: 2-3 people the character knows. questLog: the opening situation. cityLedger: empty string if they command nothing, otherwise their holdings. sessionSummary: an atmospheric opening paragraph for the first session.`;
+
+// ═══════════════════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════════════════
+function getSettings() {
+  return {
+    anthropicKey: localStorage.getItem('ch_anthropic') || '',
+    elevenKey:    localStorage.getItem('ch_eleven')    || '',
+    voiceId:      localStorage.getItem('ch_voice')     || '',
+    githubToken:  localStorage.getItem('ch_github')    || '',
+  };
+}
+
+function saveSettings() {
+  const anthropic = document.getElementById('s-anthropic').value.trim();
+  const eleven    = document.getElementById('s-eleven').value.trim();
+  const voice     = document.getElementById('s-voice').value.trim();
+  const github    = document.getElementById('s-github').value.trim();
+  if (!anthropic) { showError('Anthropic key is required.'); return; }
+  if (!github)    { showError('GitHub token is required.'); return; }
+  localStorage.setItem('ch_anthropic', anthropic);
+  localStorage.setItem('ch_eleven',    eleven);
+  localStorage.setItem('ch_voice',     voice);
+  localStorage.setItem('ch_github',    github);
+  showSuccess('Settings saved.');
+  setTimeout(() => showLibrary(), 600);
+}
+
+function openSettingsFromLibrary() {
+  const s = getSettings();
+  document.getElementById('s-anthropic').value = s.anthropicKey;
+  document.getElementById('s-eleven').value    = s.elevenKey;
+  document.getElementById('s-voice').value     = s.voiceId;
+  document.getElementById('s-github').value    = s.githubToken;
+  document.getElementById('settings-subtitle').textContent = 'Update Keys';
+  document.getElementById('settings-back').style.display = 'block';
+  showScreen('settings');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCREEN MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════
+// GITHUB API
+// ═══════════════════════════════════════════════════════════
+async function ghRequest(method, path, body = null) {
+  const { githubToken } = getSettings();
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+    method,
+    headers: {
+      'Authorization': `token ${githubToken}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : null,
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e.message || `GitHub ${res.status}`);
+  }
+  return res.json();
+}
+
+async function ghRead(path) {
+  const d = await ghRequest('GET', path);
+  if (!d) return null;
+  return { content: decodeURIComponent(escape(atob(d.content.replace(/\n/g,'')))), sha: d.sha };
+}
+
+async function ghWrite(path, content, sha = null) {
+  const body = { message: `Chronicle: ${path}`, content: btoa(unescape(encodeURIComponent(content))) };
+  if (sha) body.sha = sha;
+  return ghRequest('PUT', path, body);
+}
+
+async function ghList(path) {
+  const d = await ghRequest('GET', path);
+  return Array.isArray(d) ? d : [];
+}
+
+// ═══════════════════════════════════════════════════════════
+// LIBRARY
+// ═══════════════════════════════════════════════════════════
+async function showLibrary() {
+  showScreen('library');
+  const grid = document.getElementById('library-grid');
+  grid.innerHTML = '<div class="library-loading">Retrieving your chronicles...</div>';
+  try {
+    const items = await ghList('saves');
+    const games = items.filter(i => i.type === 'dir');
+    grid.innerHTML = '';
+
+    for (let i = 0; i < games.length; i++) {
+      let name = games[i].name, character = '', lastPlayed = '';
+      try {
+        const meta = await ghRead(`saves/${games[i].name}/meta.json`);
+        if (meta) {
+          const m = JSON.parse(meta.content);
+          name = m.name || games[i].name;
+          character = m.character || '';
+          lastPlayed = m.lastPlayed ? `Last played ${m.lastPlayed}` : '';
+        }
+      } catch(e) {}
+      const color = ACCENT_COLORS[i % ACCENT_COLORS.length];
+      const card = document.createElement('div');
+      card.className = 'game-card';
+      card.onclick = () => loadGame(games[i].name);
+      card.innerHTML = `
+        <div class="game-card-accent" style="background:${color}"></div>
+        <div class="game-card-body">
+          <div class="game-card-name">${escHtml(name)}</div>
+          <div class="game-card-meta">${escHtml(character)}${character && lastPlayed ? ' · ' : ''}${escHtml(lastPlayed)}</div>
+        </div>
+        <div class="game-card-arrow">›</div>`;
+      grid.appendChild(card);
+    }
+
+    const newCard = document.createElement('div');
+    newCard.className = 'new-game-card';
+    newCard.onclick = startInterview;
+    newCard.innerHTML = `<div class="new-game-card-icon">+</div><div class="new-game-card-label">Begin a New Chronicle</div>`;
+    grid.appendChild(newCard);
+
+  } catch(e) {
+    grid.innerHTML = `<div class="library-loading">Could not reach GitHub. Check your token in ⚙ Keys.<br><br><small style="opacity:0.6">${escHtml(e.message)}</small></div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// INTERVIEW
+// ═══════════════════════════════════════════════════════════
+let interviewHistory = [];
+
+async function startInterview() {
+  showScreen('interview');
+  interviewHistory = [
+    { role: 'user', content: 'Begin the interview. Ask your first question now.' }
+  ];
+  document.getElementById('interview-messages').innerHTML = '';
+  document.getElementById('interview-input').value = '';
+  document.getElementById('interview-send-btn').disabled = true;
+  await askNext(null);
+}
+
+async function askNext(playerAnswer) {
+  const msgs = document.getElementById('interview-messages');
+  document.getElementById('interview-send-btn').disabled = true;
+
+  // Only add to history and UI if this is a real player answer (not the silent boot primer)
+  if (playerAnswer !== null) {
+    const el = document.createElement('div');
+    el.className = 'interview-msg interview-player';
+    el.innerHTML = `<div class="bubble">${escHtml(playerAnswer)}</div>`;
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
+    interviewHistory.push({ role: 'user', content: playerAnswer });
+  }
+
+  const thinking = document.createElement('div');
+  thinking.className = 'interview-msg';
+  thinking.innerHTML = `<div class="interview-gm" style="color:var(--ash);font-style:italic;">The GM considers...</div>`;
+  msgs.appendChild(thinking);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  try {
+    const reply = await callClaude(interviewHistory, INTERVIEW_SYSTEM, 2048);
+    thinking.remove();
+
+    if (reply.includes('[INTERVIEW_COMPLETE]')) {
+      await finalizeInterview(reply, msgs);
+      return;
+    }
+
+    interviewHistory.push({ role: 'assistant', content: reply });
+    const el = document.createElement('div');
+    el.className = 'interview-msg';
+    el.innerHTML = `<div class="interview-gm">${escHtml(reply)}</div>`;
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
+    document.getElementById('interview-send-btn').disabled = false;
+    document.getElementById('interview-input').focus();
+  } catch(e) {
+    thinking.remove();
+    showError('Could not reach Claude: ' + e.message);
+    document.getElementById('interview-send-btn').disabled = false;
+  }
+}
+
+async function finalizeInterview(reply, msgs) {
+  const gen = document.createElement('div');
+  gen.className = 'interview-generating';
+  gen.innerHTML = `<div>Weaving your world into being</div><div class="dots"><span>.</span><span>.</span><span>.</span></div>`;
+  msgs.appendChild(gen);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  try {
+    const jsonStart = reply.indexOf('{');
+    const jsonEnd   = reply.lastIndexOf('}') + 1;
+    if (jsonStart === -1 || jsonEnd === 0) throw new Error('No JSON found in response.');
+    const docs = JSON.parse(reply.slice(jsonStart, jsonEnd));
+
+    const gameId = 'game-' + Date.now();
+    const now = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const meta = JSON.stringify({
+      name: docs.gameName || 'Untitled Chronicle',
+      character: docs.characterName || '',
+      lastPlayed: now, created: now, gameId
+    }, null, 2);
+
+    // Write files sequentially — GitHub rejects rapid parallel writes
+    const files = [
+      [`saves/${gameId}/meta.json`,           meta],
+      [`saves/${gameId}/world-state.txt`,     docs.worldState     || ''],
+      [`saves/${gameId}/character-sheet.txt`, docs.characterSheet || ''],
+      [`saves/${gameId}/npc-dossier.txt`,     docs.npcDossier     || ''],
+      [`saves/${gameId}/quest-log.txt`,       docs.questLog       || ''],
+      [`saves/${gameId}/city-ledger.txt`,     docs.cityLedger     || ''],
+      [`saves/${gameId}/session-summary.txt`, docs.sessionSummary || ''],
+      [`saves/${gameId}/chat-history.json`,   '[]'],
+    ];
+    for (const [path, fileContent] of files) {
+      await ghWrite(path, fileContent);
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    gen.remove();
+    showSuccess('Your chronicle is ready.');
+    setTimeout(() => loadGame(gameId), 800);
+
+  } catch(e) {
+    gen.remove();
+    console.error('[Chronicle] finalizeInterview error:', e);
+    showError('Failed to create game: ' + e.message);
+    document.getElementById('interview-send-btn').disabled = false;
+  }
+}
+
+function sendInterviewAnswer() {
+  const inp = document.getElementById('interview-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = ''; autoResize(inp);
+  askNext(text);
+}
+
+function handleInterviewKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendInterviewAnswer(); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOAD GAME
+// ═══════════════════════════════════════════════════════════
+let activeGameId   = null;
+let activeFileShas = {};
+let messageHistory = [];
+let isThinking     = false;
+
+async function loadGame(gameId) {
+  showScreen('game');
+  activeGameId = gameId;
+  activeFileShas = {};
+  messageHistory = [];
+  document.getElementById('narration').innerHTML = `<div class="welcome"><span class="welcome-rune">✦</span><h2>Loading your chronicle</h2><p>Retrieving your world from the archive...</p></div>`;
+  setOrb('thinking');
+
+  try {
+    const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json'];
+    const loaded = {};
+    await Promise.all(fileNames.map(async f => {
+      const d = await ghRead(`saves/${gameId}/${f}`);
+      if (d) { loaded[f] = d; activeFileShas[f] = d.sha; }
+    }));
+
+    // Set header
+    if (loaded['meta.json']) {
+      try {
+        const m = JSON.parse(loaded['meta.json'].content);
+        document.getElementById('game-title').textContent    = m.name      || 'The Chronicle';
+        document.getElementById('game-subtitle').textContent = m.character || 'Session Active';
+      } catch(e) {}
+    }
+
+    // Restore history or seed with world context
+    if (loaded['chat-history.json']) {
+      try {
+        const h = JSON.parse(loaded['chat-history.json'].content);
+        if (Array.isArray(h) && h.length > 0) messageHistory = h;
+      } catch(e) {}
+    }
+
+    if (messageHistory.length === 0) {
+      const parts = [
+        loaded['world-state.txt']?.content     && `[WORLD STATE]\n${loaded['world-state.txt'].content}`,
+        loaded['character-sheet.txt']?.content && `[CHARACTER SHEET]\n${loaded['character-sheet.txt'].content}`,
+        loaded['npc-dossier.txt']?.content     && `[NPC DOSSIER]\n${loaded['npc-dossier.txt'].content}`,
+        loaded['quest-log.txt']?.content       && `[QUEST LOG]\n${loaded['quest-log.txt'].content}`,
+        loaded['session-summary.txt']?.content && `[SESSION SUMMARY]\n${loaded['session-summary.txt'].content}`,
+      ].filter(Boolean).join('\n\n---\n\n');
+
+      if (parts) {
+        messageHistory = [
+          { role: 'user',      content: parts + '\n\n[The player is ready. Open with a short atmospheric scene that places them in the world.]' },
+          { role: 'assistant', content: '[World state acknowledged. Beginning session.]' },
+        ];
+      }
+    }
+
+    // Render narration
+    document.getElementById('narration').innerHTML = '';
+    const visibleMessages = messageHistory.filter(m =>
+      !(m.role === 'user' && (m.content.startsWith('[WORLD STATE]') || m.content.startsWith('[CHRONICLE SUMMARY') || m.content.startsWith('[The player'))) &&
+      !(m.role === 'assistant' && m.content.startsWith('[World state'))
+    );
+
+    if (visibleMessages.length > 0) {
+      visibleMessages.forEach(m => appendMessage(m.role === 'user' ? 'player' : 'gm', m.content));
+    } else {
+      document.getElementById('narration').innerHTML = `<div class="welcome"><span class="welcome-rune">✦</span><h2>The world awaits</h2><p>Speak your first action. The GM is listening.</p></div>`;
+    }
+
+    setOrb('ready');
+    updateCounter();
+  } catch(e) {
+    showError('Failed to load game: ' + e.message);
+    showLibrary();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// EXIT & SAVE
+// ═══════════════════════════════════════════════════════════
+async function exitGame() {
+  if (!activeGameId) { showLibrary(); return; }
+  setOrb('saving');
+  try {
+    await saveToGitHub();
+    showSuccess('Chronicle saved.');
+    setTimeout(() => { activeGameId = null; messageHistory = []; showLibrary(); }, 800);
+  } catch(e) {
+    showError('Save failed: ' + e.message);
+    setTimeout(() => showLibrary(), 1500);
+  }
+}
+
+async function saveToGitHub() {
+  if (!activeGameId) return;
+  const histJson = JSON.stringify(messageHistory, null, 2);
+  const r = await ghWrite(`saves/${activeGameId}/chat-history.json`, histJson, activeFileShas['chat-history.json'] || null);
+  if (r?.content?.sha) activeFileShas['chat-history.json'] = r.content.sha;
+
+  try {
+    const metaFile = await ghRead(`saves/${activeGameId}/meta.json`);
+    if (metaFile) {
+      const m = JSON.parse(metaFile.content);
+      m.lastPlayed = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+      await ghWrite(`saves/${activeGameId}/meta.json`, JSON.stringify(m, null, 2), metaFile.sha);
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════
+// SEND MESSAGE
+// ═══════════════════════════════════════════════════════════
+async function sendMessage() {
+  const inp = document.getElementById('player-input');
+  const text = inp.value.trim();
+  if (!text || isThinking) return;
+  inp.value = ''; autoResize(inp);
+  appendMessage('player', text);
+  messageHistory.push({ role: 'user', content: text });
+  updateCounter();
+  setThinking(true);
+  const typing = appendTyping();
+  try {
+    const reply = await callClaude(messageHistory, GM_SYSTEM_PROMPT, 1024);
+    typing.remove();
+    appendMessage('gm', reply);
+    messageHistory.push({ role: 'assistant', content: reply });
+    updateCounter();
+    speakText(reply);
+
+    // Auto-save every 5 player messages
+    const playerCount = messageHistory.filter(m => m.role === 'user' && !m.content.startsWith('[WORLD STATE]') && !m.content.startsWith('[CHRONICLE') && !m.content.startsWith('[The player')).length;
+    if (playerCount % 5 === 0) saveToGitHub().catch(() => {});
+
+    // Compress if needed
+    const nonSystemMessages = messageHistory.filter(m =>
+      !(m.role === 'user' && (m.content.startsWith('[WORLD STATE]') || m.content.startsWith('[The player'))) &&
+      !(m.role === 'assistant' && m.content.startsWith('[World state'))
+    );
+    if (nonSystemMessages.length >= MAX_MESSAGES * 2) await compressHistory();
+
+  } catch(e) {
+    typing.remove();
+    showError(e.message || 'Something went wrong.');
+  } finally {
+    setThinking(false);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CLAUDE API
+// ═══════════════════════════════════════════════════════════
+async function callClaude(messages, system, maxTokens = 1024) {
+  const { anthropicKey } = getSettings();
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system, messages }),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e?.error?.message || `API error ${res.status}`);
+  }
+  return (await res.json()).content[0].text;
+}
+
+// ═══════════════════════════════════════════════════════════
+// MEMORY COMPRESSION
+// ═══════════════════════════════════════════════════════════
+async function compressHistory() {
+  const systemMessages = messageHistory.slice(0, 2);
+  const recent = messageHistory.slice(-12);
+  const histText = recent.map(m => `${m.role === 'user' ? 'PLAYER' : 'GM'}: ${m.content}`).join('\n\n');
+
+  const summarySystem = `You are a meticulous chronicler. Summarize the following RPG session in compact present-tense format covering: character condition/inventory, current location, active situation/threats, key NPCs and their status, recent decisions and consequences, world changes, tracked resources. Be precise and complete.`;
+
+  try {
+    const summary = await callClaude(
+      [{ role: 'user', content: `Session:\n\n${histText}\n\nProvide chronicle summary.` }],
+      summarySystem, 1024
+    );
+    messageHistory = [
+      ...systemMessages,
+      { role: 'user',      content: `[CHRONICLE SUMMARY — prior events]\n\n${summary}\n\n[Story continues from here]` },
+      { role: 'assistant', content: 'The chronicle is held. I remember.' },
+    ];
+    updateCounter();
+    saveToGitHub().catch(() => {});
+  } catch(e) {
+    messageHistory = [...messageHistory.slice(0, 2), ...messageHistory.slice(-10)];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// VOICE — SPEECH TO TEXT
+// ═══════════════════════════════════════════════════════════
+let recognition  = null;
+let isListening  = false;
+let currentAudio = null;
+let mediaSource  = null;
+let sourceBuffer = null;
+let audioQueue   = [];
+
+function initSpeechRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { showError('Speech recognition not supported. Use Chrome.'); return false; }
+  recognition = new SR();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('voice-btn').classList.add('listening');
+    document.getElementById('input-hint').textContent = '🔴 Listening...';
+  };
+  recognition.onresult = (e) => {
+    let interim = '', final = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) final += t; else interim += t;
+    }
+    const inp = document.getElementById('player-input');
+    inp.value = final || interim; autoResize(inp);
+  };
+  recognition.onend = () => {
+    isListening = false;
+    document.getElementById('voice-btn').classList.remove('listening');
+    document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
+    const inp = document.getElementById('player-input');
+    if (inp.value.trim()) setTimeout(() => sendMessage(), 300);
+  };
+  recognition.onerror = (e) => {
+    isListening = false;
+    document.getElementById('voice-btn').classList.remove('listening');
+    document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
+    if (e.error !== 'no-speech' && e.error !== 'aborted') showError(`Mic error: ${e.error}`);
+  };
+  return true;
+}
+
+function toggleVoice() {
+  if (currentAudio) {
+    stopAudio();
+    document.getElementById('voice-btn').classList.remove('speaking');
+    document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
+    return;
+  }
+  if (isListening) { recognition.stop(); return; }
+  if (!recognition && !initSpeechRecognition()) return;
+  try { recognition.start(); }
+  catch(e) { recognition.stop(); setTimeout(() => recognition.start(), 200); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// VOICE — ELEVENLABS TTS
+// ═══════════════════════════════════════════════════════════
+function stopAudio() {
+  if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
+  if (mediaSource && mediaSource.readyState === 'open') { try { mediaSource.endOfStream(); } catch(e) {} }
+  mediaSource = null; sourceBuffer = null; audioQueue = [];
+}
+
+async function speakText(text) {
+  const { elevenKey, voiceId } = getSettings();
+  if (!elevenKey || !voiceId) return;
+  stopAudio();
+  const indicator = appendSpeakingIndicator();
+  document.getElementById('voice-btn').classList.add('speaking');
+  document.getElementById('input-hint').textContent = '🔊 Speaking... tap 🎤 to stop';
+  const cleanup = () => {
+    indicator.remove();
+    document.getElementById('voice-btn').classList.remove('speaking');
+    document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
+  };
+  try {
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
+      method: 'POST',
+      headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text, model_id: TTS_MODEL,
+        voice_settings: { stability: 0.55, similarity_boost: 0.65, style: 0.20, use_speaker_boost: false },
+      }),
+    });
+    if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
+    const canStream = window.MediaSource && MediaSource.isTypeSupported('audio/mpeg');
+    if (canStream) await streamMediaSource(res, cleanup);
+    else           await streamBlob(res, cleanup);
+  } catch(e) {
+    cleanup();
+    if (!e.message?.includes('aborted')) showError('Voice failed. Check ElevenLabs key.');
+  }
+}
+
+async function streamMediaSource(response, cleanup) {
+  return new Promise(resolve => {
+    mediaSource = new MediaSource();
+    currentAudio = new Audio();
+    currentAudio.src = URL.createObjectURL(mediaSource);
+    mediaSource.addEventListener('sourceopen', async () => {
+      sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+      const reader = response.body.getReader();
+      let started = false;
+      const appendNext = () => { if (audioQueue.length && !sourceBuffer.updating) sourceBuffer.appendBuffer(audioQueue.shift()); };
+      sourceBuffer.addEventListener('updateend', appendNext);
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            const end = () => {
+              if (sourceBuffer.updating) { sourceBuffer.addEventListener('updateend', end, {once:true}); return; }
+              if (audioQueue.length)     { sourceBuffer.appendBuffer(audioQueue.shift()); sourceBuffer.addEventListener('updateend', end, {once:true}); return; }
+              if (mediaSource.readyState === 'open') mediaSource.endOfStream();
+            };
+            end(); break;
+          }
+          audioQueue.push(value);
+          if (!sourceBuffer.updating) appendNext();
+          if (!started) { started = true; currentAudio.play().catch(()=>{}); }
+        }
+      };
+      currentAudio.onended = () => { stopAudio(); cleanup(); resolve(); };
+      currentAudio.onerror = () => { stopAudio(); cleanup(); resolve(); };
+      pump();
+    });
+  });
+}
+
+async function streamBlob(response, cleanup) {
+  const chunks = [];
+  const reader = response.body.getReader();
+  while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+  const url = URL.createObjectURL(new Blob(chunks, { type: 'audio/mpeg' }));
+  currentAudio = new Audio(url);
+  currentAudio.onended = () => { stopAudio(); URL.revokeObjectURL(url); cleanup(); };
+  await currentAudio.play();
+}
+
+// ═══════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════
+function appendMessage(role, text) {
+  const n = document.getElementById('narration');
+  const el = document.createElement('div');
+  el.className = `msg msg-${role === 'player' ? 'player' : 'gm'}`;
+  el.innerHTML = role === 'player'
+    ? `<div class="bubble">${escHtml(text)}</div>`
+    : `<div class="narrative">${escHtml(text)}</div>`;
+  n.appendChild(el); n.scrollTop = n.scrollHeight; return el;
+}
+function appendTyping() {
+  const n = document.getElementById('narration');
+  const el = document.createElement('div');
+  el.className = 'msg msg-gm typing-indicator';
+  el.innerHTML = `<div class="dot"></div><div class="dot"></div><div class="dot"></div><span>The GM stirs...</span>`;
+  n.appendChild(el); n.scrollTop = n.scrollHeight; return el;
+}
+function appendSpeakingIndicator() {
+  const n = document.getElementById('narration');
+  const el = document.createElement('div');
+  el.className = 'msg msg-gm speaking-indicator';
+  el.innerHTML = `<div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><span>The GM speaks</span>`;
+  n.appendChild(el); n.scrollTop = n.scrollHeight; return el;
+}
+function setThinking(val) {
+  isThinking = val;
+  document.getElementById('send-btn').disabled = val;
+  setOrb(val ? 'thinking' : 'ready');
+}
+function setOrb(state) {
+  const o = document.getElementById('status-orb');
+  if (o) o.className = 'status-orb ' + state;
+}
+function updateCounter() {
+  const count = messageHistory.filter(m =>
+    m.role === 'user' &&
+    !m.content.startsWith('[WORLD STATE]') &&
+    !m.content.startsWith('[CHRONICLE') &&
+    !m.content.startsWith('[The player')
+  ).length;
+  const el = document.getElementById('msg-counter');
+  if (el) el.textContent = `${count} / ${MAX_MESSAGES}`;
+}
+function showError(msg) {
+  const t = document.getElementById('error-toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 4500);
+}
+function showSuccess(msg) {
+  const t = document.getElementById('success-toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+function handleKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }
+function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 140) + 'px'; }
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+}
+
+// ═══════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  const { anthropicKey, githubToken } = getSettings();
+  if (!anthropicKey || !githubToken) {
+    showScreen('settings');
+  } else {
+    showLibrary();
+  }
+});
+</script>
+</body>
+</html>

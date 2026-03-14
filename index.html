@@ -427,26 +427,35 @@ body::before {
         <label class="field-label">Narrator Voice</label>
         <select class="field-input" id="s-voice" style="cursor:pointer;">
           <optgroup label="American Male">
-            <option value="am_echo">Echo — clear and balanced (recommended narrator)</option>
-            <option value="am_adam">Adam — deep and authoritative</option>
-            <option value="am_liam">Liam — warm and measured</option>
-            <option value="am_michael">Michael — steady, older male</option>
+            <option value="am_echo">Echo — clear, balanced (recommended narrator)</option>
+            <option value="am_adam">Adam — deep, authoritative</option>
+            <option value="am_michael">Michael — steady, older</option>
+            <option value="am_liam">Liam — calm, measured</option>
+            <option value="am_onyx">Onyx — deep, brooding</option>
+            <option value="am_fenrir">Fenrir — fierce, intense</option>
+            <option value="am_puck">Puck — mischievous, light</option>
           </optgroup>
           <optgroup label="British Male">
             <option value="bm_george">George — refined, British</option>
             <option value="bm_lewis">Lewis — clear, British</option>
+            <option value="bm_daniel">Daniel — warm, friendly British</option>
           </optgroup>
           <optgroup label="American Female">
             <option value="af_heart">Heart — warm and engaging</option>
             <option value="af_bella">Bella — soft and gentle</option>
             <option value="af_nova">Nova — bright and clear</option>
-            <option value="af_sarah">Sarah — natural and calm</option>
+            <option value="af_sarah">Sarah — calm and natural</option>
+            <option value="af_jessica">Jessica — confident, direct</option>
+            <option value="af_kore">Kore — cool and detached</option>
+            <option value="af_aoede">Aoede — melodic, lyrical</option>
+            <option value="af_river">River — flowing and gentle</option>
             <option value="af_sky">Sky — light and airy</option>
-            <option value="af_nicole">Nicole — breathy and intimate</option>
+            <option value="af_nicole">Nicole — breathy, intimate</option>
+            <option value="af_alloy">Alloy — neutral, ambiguous</option>
           </optgroup>
           <optgroup label="British Female">
             <option value="bf_emma">Emma — warm, British</option>
-            <option value="bf_isabella">Isabella — refined, British</option>
+            <option value="bf_isabella">Isabella — commanding, British</option>
           </optgroup>
         </select>
       </div>
@@ -475,8 +484,21 @@ body::before {
       <div class="top-bar-sub">Your Stories</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
+      <button class="icon-btn" id="prepare-voices-btn" onclick="prepareVoices()">🔊 Prepare Voices</button>
       <button class="icon-btn" onclick="showScreen('import')">↑ Import</button>
       <button class="icon-btn" onclick="openSettingsFromLibrary()">⚙ Keys</button>
+    </div>
+  </div>
+  <!-- Voice preparation progress bar -->
+  <div id="voice-prep-bar" style="display:none; padding:10px 24px; background:rgba(13,11,8,0.8); border-bottom:1px solid rgba(184,146,42,0.15); flex-shrink:0;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="flex:1;">
+        <div style="font-family:'Cinzel',serif;font-size:0.68rem;letter-spacing:0.1em;color:var(--gold-dim);text-transform:uppercase;margin-bottom:6px;" id="voice-prep-label">Preparing voices...</div>
+        <div style="height:3px;background:rgba(184,146,42,0.15);border-radius:2px;overflow:hidden;">
+          <div id="voice-prep-progress" style="height:100%;background:var(--gold);border-radius:2px;width:0%;transition:width 0.3s ease;"></div>
+        </div>
+      </div>
+      <div style="font-size:0.75rem;color:var(--ash);flex-shrink:0;" id="voice-prep-count">0 / 18</div>
     </div>
   </div>
   <div class="scrollable">
@@ -1358,29 +1380,45 @@ let kokoroTTS      = null;   // loaded once, cached forever
 let kokoroLoading  = false;
 let kokoroReady    = false;
 
-// Voice pool using Kokoro voice IDs
+// Voice pool using Kokoro voice IDs — all 18 English voices
 const VOICE_POOL = {
   male: [
-    { id: 'am_adam',    label: 'Adam',     fit: 'deep authoritative older male, commander, king, or powerful villain'       },
-    { id: 'am_echo',    label: 'Echo',     fit: 'clear balanced male, soldier, merchant, or steady advisor'                 },
-    { id: 'am_liam',    label: 'Liam',     fit: 'warm measured male, scholar, healer, or thoughtful mentor'                 },
-    { id: 'am_michael', label: 'Michael',  fit: 'steady older male, innkeeper, guard captain, or seasoned veteran'         },
-    { id: 'bm_george',  label: 'George',   fit: 'refined british male, nobleman, magistrate, or elder statesman'           },
-    { id: 'bm_lewis',   label: 'Lewis',    fit: 'clear british male, young knight, educated merchant, or minor lord'       },
+    { id: 'am_adam',    label: 'Adam',    fit: 'deep authoritative older male, commander, king, or powerful villain'       },
+    { id: 'am_echo',    label: 'Echo',    fit: 'clear balanced male, soldier, merchant, or reliable advisor'               },
+    { id: 'am_michael', label: 'Michael', fit: 'steady older male, innkeeper, guard captain, or seasoned veteran'         },
+    { id: 'am_liam',    label: 'Liam',    fit: 'calm measured male, scholar, scribe, or quiet man of few words'           },
+    { id: 'am_onyx',    label: 'Onyx',    fit: 'deep resonant male, brooding villain, gravelly warrior, or dark lord'     },
+    { id: 'am_fenrir',  label: 'Fenrir',  fit: 'fierce intense male, barbarian, berserker, or wild hunter'                },
+    { id: 'am_puck',    label: 'Puck',    fit: 'mischievous light male, trickster, jester, or cunning rogue'              },
+    { id: 'bm_george',  label: 'George',  fit: 'refined british male, nobleman, magistrate, or elder statesman'           },
+    { id: 'bm_lewis',   label: 'Lewis',   fit: 'clear british male, young knight, educated merchant, or minor lord'       },
+    { id: 'bm_daniel',  label: 'Daniel',  fit: 'warm british male, friendly tavern keeper, common folk, or kind stranger' },
   ],
   female: [
-    { id: 'af_heart',   label: 'Heart',    fit: 'warm engaging female, kind innkeeper, nurturing healer, or loving mother'  },
-    { id: 'af_bella',   label: 'Bella',    fit: 'soft gentle female, timid servant, shy maiden, or frightened villager'    },
-    { id: 'af_nova',    label: 'Nova',     fit: 'bright energetic female, young barmaid, excited apprentice, or bold girl'  },
-    { id: 'af_sarah',   label: 'Sarah',    fit: 'calm natural female, wise elder, village elder, or steady noblewoman'     },
-    { id: 'bf_emma',    label: 'Emma',     fit: 'warm british female, refined noble lady, composed diplomat, or spy'       },
-    { id: 'bf_isabella',label: 'Isabella', fit: 'commanding british female, queen, high priestess, or cold villain'        },
+    { id: 'af_heart',    label: 'Heart',    fit: 'warm engaging female, kind innkeeper, nurturing healer, or loving mother'  },
+    { id: 'af_bella',    label: 'Bella',    fit: 'soft gentle female, timid servant, shy maiden, or frightened villager'    },
+    { id: 'af_nova',     label: 'Nova',     fit: 'bright energetic female, young barmaid, excited apprentice, or bold girl'  },
+    { id: 'af_sarah',    label: 'Sarah',    fit: 'calm natural female, steady noblewoman, wise elder, or composed leader'   },
+    { id: 'af_jessica',  label: 'Jessica',  fit: 'clear confident female, city guard, no-nonsense merchant, or soldier'     },
+    { id: 'af_kore',     label: 'Kore',     fit: 'cool detached female, cold-blooded assassin, emotionless mage, or seer'  },
+    { id: 'af_aoede',    label: 'Aoede',    fit: 'melodic lyrical female, bard, singer, or enchantress with musical voice'  },
+    { id: 'af_river',    label: 'River',    fit: 'flowing gentle female, nature spirit, druid, or soft-spoken wild woman'   },
+    { id: 'bf_emma',     label: 'Emma',     fit: 'warm british female, refined noble lady, composed diplomat, or spy'       },
+    { id: 'bf_isabella', label: 'Isabella', fit: 'commanding british female, queen, high priestess, or cold villain'        },
   ],
   neutral: [
-    { id: 'af_sky',    label: 'Sky',     fit: 'light airy neutral, spirit, faerie, or otherworldly entity'                 },
-    { id: 'af_nicole', label: 'Nicole',  fit: 'breathy hollow neutral, wraith, ancient being, or mysterious presence'      },
+    { id: 'af_sky',    label: 'Sky',    fit: 'light airy neutral, spirit, faerie, or otherworldly entity'              },
+    { id: 'af_nicole', label: 'Nicole', fit: 'breathy hollow neutral, wraith, ancient being, or mysterious presence'   },
+    { id: 'af_alloy',  label: 'Alloy',  fit: 'ambiguous steady neutral, automaton, construct, or inhuman voice'        },
   ],
 };
+
+// All voices flattened for pre-warming
+const ALL_VOICES = [
+  ...VOICE_POOL.male,
+  ...VOICE_POOL.female,
+  ...VOICE_POOL.neutral,
+];
 
 async function loadKokoro(onProgress) {
   if (kokoroReady) return true;
@@ -1403,6 +1441,56 @@ async function loadKokoro(onProgress) {
     console.error('[Chronicle] Kokoro load failed:', e);
     return false;
   }
+}
+
+// Pre-warm all voices so they're instant during gameplay
+async function prepareVoices() {
+  const btn = document.getElementById('prepare-voices-btn');
+  const bar = document.getElementById('voice-prep-bar');
+  const label = document.getElementById('voice-prep-label');
+  const progress = document.getElementById('voice-prep-progress');
+  const count = document.getElementById('voice-prep-count');
+
+  btn.disabled = true;
+  bar.style.display = 'block';
+  label.textContent = 'Loading voice model...';
+  progress.style.width = '0%';
+
+  // Load model first if not ready
+  const ok = await loadKokoro((msg) => { label.textContent = msg; });
+  if (!ok) {
+    bar.style.display = 'none';
+    btn.disabled = false;
+    showError('Could not load voice model.');
+    return;
+  }
+
+  const total = ALL_VOICES.length;
+  label.textContent = 'Warming up voices...';
+
+  for (let i = 0; i < total; i++) {
+    const voice = ALL_VOICES[i];
+    count.textContent = `${i} / ${total}`;
+    progress.style.width = `${Math.round((i / total) * 100)}%`;
+    label.textContent = `Warming up ${voice.label}...`;
+    try {
+      // Generate a short silent-ish phrase to load the voice embedding
+      await kokoroTTS.generate('.', { voice: voice.id });
+    } catch(e) {
+      // Some voice IDs may not exist in this version — skip silently
+      console.warn(`[Chronicle] Voice ${voice.id} not available, skipping`);
+    }
+  }
+
+  progress.style.width = '100%';
+  count.textContent = `${total} / ${total}`;
+  label.textContent = 'All voices ready — enjoy seamless narration!';
+  btn.textContent = '✓ Voices Ready';
+  btn.style.color = 'var(--gold)';
+
+  setTimeout(() => {
+    bar.style.display = 'none';
+  }, 3000);
 }
 
 // Convert Kokoro AudioData to a playable blob URL

@@ -292,6 +292,63 @@ body::before {
 .input-hint { font-size: 0.7rem; color: var(--ash); letter-spacing: 0.05em; font-style: italic; }
 #msg-counter { font-size: 0.68rem; color: var(--ash); letter-spacing: 0.06em; opacity: 0.6; }
 .status-orb { width: 8px; height: 8px; border-radius: 50%; background: var(--ash); transition: background 0.4s, box-shadow 0.4s; }
+/* IMPORT SCREEN */
+#import-dropzone {
+  border: 2px dashed rgba(184,146,42,0.3); border-radius: 6px;
+  padding: 40px 20px; text-align: center; cursor: pointer;
+  transition: all 0.2s; background: rgba(26,23,16,0.4);
+}
+#import-dropzone:hover, #import-dropzone.drag-over {
+  border-color: rgba(184,146,42,0.6);
+  background: rgba(42,37,32,0.6);
+}
+.dropzone-icon {
+  font-size: 2rem; color: var(--gold-dim); margin-bottom: 10px;
+}
+.dropzone-label {
+  font-family: 'Cinzel', serif; font-size: 0.85rem;
+  letter-spacing: 0.1em; color: var(--parchment); text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.dropzone-sub { font-size: 0.78rem; color: var(--ash); font-style: italic; }
+.import-file-item {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(26,23,16,0.6); border: 1px solid rgba(184,146,42,0.15);
+  border-radius: 3px; padding: 10px 14px;
+}
+.import-file-name {
+  flex: 1; font-size: 0.88rem; color: var(--parchment2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.import-file-size { font-size: 0.75rem; color: var(--ash); flex-shrink: 0; }
+.import-file-remove {
+  background: none; border: none; color: var(--ash);
+  cursor: pointer; font-size: 0.85rem; padding: 2px 6px;
+  transition: color 0.2s; flex-shrink: 0;
+}
+.import-file-remove:hover { color: #e06060; }
+.preview-section {
+  border: 1px solid rgba(184,146,42,0.15); border-radius: 4px; overflow: hidden;
+}
+.preview-section-header {
+  font-family: 'Cinzel', serif; font-size: 0.7rem; letter-spacing: 0.12em;
+  color: var(--gold-dim); text-transform: uppercase;
+  padding: 10px 14px; background: rgba(26,23,16,0.5);
+  border-bottom: 1px solid rgba(184,146,42,0.12);
+}
+.preview-section-body {
+  padding: 12px 14px; font-size: 0.88rem; color: var(--parchment2);
+  line-height: 1.7; white-space: pre-wrap; max-height: 180px;
+  overflow-y: auto; background: rgba(13,11,8,0.3);
+}
+.preview-section-body::-webkit-scrollbar { width: 3px; }
+.preview-section-body::-webkit-scrollbar-thumb { background: var(--ember-dim); }
+.import-analysing {
+  text-align: center; padding: 40px 20px;
+  font-family: 'Cinzel', serif; font-size: 0.8rem;
+  letter-spacing: 0.12em; color: var(--gold-dim); text-transform: uppercase;
+}
+
 /* VOICE CONFIRM BAR */
 #voice-confirm-bar {
   display: none; align-items: center; gap: 10px;
@@ -365,16 +422,35 @@ body::before {
       <div class="settings-hint">Get this from console.anthropic.com → API Keys</div>
     </div>
     <div class="settings-section">
-      <div class="settings-section-title">ElevenLabs — Voice Narration</div>
+      <div class="settings-section-title">Voice Narration — Kokoro (Free, runs in browser)</div>
       <div>
-        <label class="field-label">API Key</label>
-        <input class="field-input" type="password" id="s-eleven" placeholder="sk_..." autocomplete="off" />
+        <label class="field-label">Narrator Voice</label>
+        <select class="field-input" id="s-voice" style="cursor:pointer;">
+          <optgroup label="American Male">
+            <option value="am_echo">Echo — clear and balanced (recommended narrator)</option>
+            <option value="am_adam">Adam — deep and authoritative</option>
+            <option value="am_liam">Liam — warm and measured</option>
+            <option value="am_michael">Michael — steady, older male</option>
+          </optgroup>
+          <optgroup label="British Male">
+            <option value="bm_george">George — refined, British</option>
+            <option value="bm_lewis">Lewis — clear, British</option>
+          </optgroup>
+          <optgroup label="American Female">
+            <option value="af_heart">Heart — warm and engaging</option>
+            <option value="af_bella">Bella — soft and gentle</option>
+            <option value="af_nova">Nova — bright and clear</option>
+            <option value="af_sarah">Sarah — natural and calm</option>
+            <option value="af_sky">Sky — light and airy</option>
+            <option value="af_nicole">Nicole — breathy and intimate</option>
+          </optgroup>
+          <optgroup label="British Female">
+            <option value="bf_emma">Emma — warm, British</option>
+            <option value="bf_isabella">Isabella — refined, British</option>
+          </optgroup>
+        </select>
       </div>
-      <div>
-        <label class="field-label">Voice ID</label>
-        <input class="field-input" type="text" id="s-voice" placeholder="e.g. 8dEUmyPMdDdK91vboYih" autocomplete="off" />
-      </div>
-      <div class="settings-hint">Get your key from elevenlabs.io → Profile. Find Voice IDs in the Voice Library.</div>
+      <div class="settings-hint">No API key needed. Kokoro runs entirely in your browser. The model (~86MB) downloads once on first use and is then cached forever.</div>
     </div>
     <div class="settings-section">
       <div class="settings-section-title">GitHub — Save File Sync</div>
@@ -398,7 +474,10 @@ body::before {
       <div class="top-bar-title">The Chronicle</div>
       <div class="top-bar-sub">Your Stories</div>
     </div>
-    <button class="icon-btn" onclick="openSettingsFromLibrary()">⚙ Keys</button>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button class="icon-btn" onclick="showScreen('import')">↑ Import</button>
+      <button class="icon-btn" onclick="openSettingsFromLibrary()">⚙ Keys</button>
+    </div>
   </div>
   <div class="scrollable">
     <div class="library-grid" id="library-grid">
@@ -424,6 +503,72 @@ body::before {
         style="resize:none; min-height:50px; max-height:120px;"
         onkeydown="handleInterviewKey(event)" oninput="autoResize(this)"></textarea>
       <button class="send-btn" id="interview-send-btn" onclick="sendInterviewAnswer()" style="height:50px;" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- IMPORT -->
+<div id="screen-import" class="screen">
+  <div class="top-bar">
+    <div>
+      <div class="top-bar-title">Import Chronicle</div>
+      <div class="top-bar-sub">Continue a previous adventure</div>
+    </div>
+    <button class="icon-btn" onclick="showLibrary()">✕ Cancel</button>
+  </div>
+  <div class="scrollable" id="import-body">
+    <div style="max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:24px;padding:8px 0 80px;">
+
+      <div style="font-size:0.92rem;color:var(--ash);font-style:italic;line-height:1.7;">
+        Upload any files from a previous RPG — chat exports, session notes, character sheets, transcripts. Claude will read them and extract everything it needs to continue your story.
+      </div>
+
+      <!-- Drop zone -->
+      <div id="import-dropzone"
+        onclick="document.getElementById('import-file-input').click()"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="handleImportDrop(event)">
+        <div class="dropzone-icon">↑</div>
+        <div class="dropzone-label">Tap to choose files</div>
+        <div class="dropzone-sub">or drag and drop · txt, md, pdf, json, any text format</div>
+      </div>
+      <input type="file" id="import-file-input" multiple accept=".txt,.md,.json,.csv,.html,.pdf,.rtf"
+        style="display:none" onchange="handleImportFiles(this.files)" />
+
+      <!-- File list -->
+      <div id="import-file-list" style="display:none;flex-direction:column;gap:8px;"></div>
+
+      <!-- Analyse button -->
+      <button class="primary-btn" id="import-analyse-btn" onclick="analyseImport()" disabled
+        style="display:none;">Analyse Files</button>
+
+    </div>
+  </div>
+</div>
+
+<!-- IMPORT PREVIEW -->
+<div id="screen-import-preview" class="screen">
+  <div class="top-bar">
+    <div>
+      <div class="top-bar-title">Review Extraction</div>
+      <div class="top-bar-sub">Check what Claude found</div>
+    </div>
+    <button class="icon-btn" onclick="showScreen('import')">← Back</button>
+  </div>
+  <div class="scrollable">
+    <div style="max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:20px;padding:8px 0 100px;">
+
+      <div>
+        <label class="field-label">Game Name</label>
+        <input class="field-input" type="text" id="import-game-name" placeholder="Name this chronicle..." />
+      </div>
+
+      <div id="preview-sections" style="display:flex;flex-direction:column;gap:14px;"></div>
+
+      <button class="primary-btn" id="import-save-btn" onclick="saveImportedGame()">
+        Save & Enter the Chronicle
+      </button>
     </div>
   </div>
 </div>
@@ -483,7 +628,6 @@ body::before {
 // ═══════════════════════════════════════════════════════════
 const GITHUB_REPO   = 'DCZraek/chronicle-saves';
 const MODEL         = 'claude-sonnet-4-20250514';
-const TTS_MODEL     = 'eleven_turbo_v2_5';
 const MAX_MESSAGES  = 15;
 const ACCENT_COLORS = ['#8a3a2a','#2a5a8a','#3a7a3a','#7a3a7a','#7a6a2a','#2a6a7a','#8a6a3a','#4a3a8a'];
 
@@ -557,8 +701,7 @@ Make each value a rich detailed document. worldState: world overview, politics, 
 function getSettings() {
   return {
     anthropicKey: localStorage.getItem('ch_anthropic') || '',
-    elevenKey:    localStorage.getItem('ch_eleven')    || '',
-    voiceId:      localStorage.getItem('ch_voice')     || '',
+    voiceId:      localStorage.getItem('ch_voice')     || 'am_echo',
     githubToken:  localStorage.getItem('ch_github')    || '',
   };
 }
@@ -570,9 +713,9 @@ function saveSettings() {
   const github    = document.getElementById('s-github').value.trim();
   if (!anthropic) { showError('Anthropic key is required.'); return; }
   if (!github)    { showError('GitHub token is required.'); return; }
+  // No OpenAI key needed — Kokoro runs in browser
   localStorage.setItem('ch_anthropic', anthropic);
-  localStorage.setItem('ch_eleven',    eleven);
-  localStorage.setItem('ch_voice',     voice);
+  localStorage.setItem('ch_voice',     voice || 'am_echo');
   localStorage.setItem('ch_github',    github);
   showSuccess('Settings saved.');
   setTimeout(() => showLibrary(), 600);
@@ -581,8 +724,7 @@ function saveSettings() {
 function openSettingsFromLibrary() {
   const s = getSettings();
   document.getElementById('s-anthropic').value = s.anthropicKey;
-  document.getElementById('s-eleven').value    = s.elevenKey;
-  document.getElementById('s-voice').value     = s.voiceId;
+  document.getElementById('s-voice').value     = s.voiceId || 'am_echo';
   document.getElementById('s-github').value    = s.githubToken;
   document.getElementById('settings-subtitle').textContent = 'Update Keys';
   document.getElementById('settings-back').style.display = 'block';
@@ -855,7 +997,7 @@ let activeGameId   = null;
 let activeFileShas = {};
 let messageHistory = [];
 let isThinking     = false;
-let npcVoices      = {};   // { "Name": { voiceId, description } }
+// npcVoices declared in Kokoro TTS section
 
 async function loadGame(gameId) {
   showScreen('game');
@@ -1066,9 +1208,6 @@ async function compressHistory() {
 let recognition    = null;
 let isListening    = false;
 let currentAudio   = null;
-let mediaSource    = null;
-let sourceBuffer   = null;
-let audioQueue     = [];
 let confirmTimer   = null;
 let confirmSeconds = 3;
 let lastTranscript = '';
@@ -1187,8 +1326,7 @@ function toggleVoice() {
 // ═══════════════════════════════════════════════════════════
 function stopAudio() {
   if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
-  if (mediaSource && mediaSource.readyState === 'open') { try { mediaSource.endOfStream(); } catch(e) {} }
-  mediaSource = null; sourceBuffer = null; audioQueue = [];
+  // No MediaSource needed for Kokoro WAV output
 }
 
 // ── Parse tagged GM response into segments ──────────────────
@@ -1213,59 +1351,158 @@ function parseSegments(text) {
   return segments;
 }
 
-// ── NPC Voice Pool ───────────────────────────────────────────
-// ElevenLabs default voices — stable IDs, available on all plans.
-// 'fit' describes what kind of character this voice suits best.
+// ═══════════════════════════════════════════════════════════
+// KOKORO TTS — in-browser, free, no API key
+// ═══════════════════════════════════════════════════════════
+let kokoroTTS      = null;   // loaded once, cached forever
+let kokoroLoading  = false;
+let kokoroReady    = false;
+
+// Voice pool using Kokoro voice IDs
 const VOICE_POOL = {
   male: [
-    { id: 'pNInz6obpgDQGcFmaJgB', label: 'Adam',    fit: 'deep authoritative middle-aged man, serious and commanding'         },
-    { id: 'VR6AewLTigWG4xSOukaG', label: 'Arnold',  fit: 'gravelly intense male, battle-hardened warrior or thug'             },
-    { id: 'TxGEqnHWrfWFTfGW9XjX', label: 'Josh',    fit: 'young warm friendly male, earnest commoner or eager youth'          },
-    { id: 'yoZ06aMxZJJ28mfd3POQ', label: 'Sam',     fit: 'calm measured neutral male, scholar, clerk, or quiet advisor'       },
-    { id: 'g5CIjZEefAph4nQFvHAz', label: 'Ethan',   fit: 'soft thoughtful middle-aged male, healer, merchant, or gentle soul' },
-    { id: 'N2lVS1w4EtoT3dr4eOWO', label: 'Callum',  fit: 'raspy world-weary male, aging rogue, veteran, or bitter exile'      },
-    { id: 'onwK4e9ZLuTAKqWW03F9', label: 'Daniel',  fit: 'refined deep british male, nobleman, magistrate, or elder statesman' },
-    { id: 'ODq5zmih8GrVes37Dx0d', label: 'Patrick', fit: 'older distinguished male, wise mentor, high priest, or aged king'   },
-    { id: 'GBv7mTt0atIp3Br8iCZE', label: 'Thomas',  fit: 'mild soft-spoken male, timid servant, nervous informant, or coward' },
-    { id: 'IKne3meq5aSn9XLyUdCD', label: 'Charlie', fit: 'cheerful young male, street urchin, enthusiastic innkeeper, jester' },
+    { id: 'am_adam',    label: 'Adam',     fit: 'deep authoritative older male, commander, king, or powerful villain'       },
+    { id: 'am_echo',    label: 'Echo',     fit: 'clear balanced male, soldier, merchant, or steady advisor'                 },
+    { id: 'am_liam',    label: 'Liam',     fit: 'warm measured male, scholar, healer, or thoughtful mentor'                 },
+    { id: 'am_michael', label: 'Michael',  fit: 'steady older male, innkeeper, guard captain, or seasoned veteran'         },
+    { id: 'bm_george',  label: 'George',   fit: 'refined british male, nobleman, magistrate, or elder statesman'           },
+    { id: 'bm_lewis',   label: 'Lewis',    fit: 'clear british male, young knight, educated merchant, or minor lord'       },
   ],
   female: [
-    { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Bella',   fit: 'warm gentle female, kind innkeeper, nurturing healer, or soft noble'  },
-    { id: 'MF3mGyEYCl7XYWbV9V6O', label: 'Elli',    fit: 'young bright energetic female, curious girl, excited apprentice'      },
-    { id: 'jBpfuIE2acCO8z3wKNLl', label: 'Gigi',    fit: 'playful flirtatious young female, tavern girl, witty rogue, charmer'  },
-    { id: 'oWAxZDx7w5VEj9dCyTzz', label: 'Grace',   fit: 'refined composed british female, noble lady, cold diplomat, spy'      },
-    { id: 'z9fAnlkpzviPz146aGWa', label: 'Glinda',  fit: 'commanding dramatic older female, queen, high priestess, or villain'  },
-    { id: 'pFZP5JQG7iQjIQuC4Bku', label: 'Lily',    fit: 'soft whispery british female, mysterious oracle, secretive informant' },
-    { id: 'XrExE9yKIg1WjnnlVkGX', label: 'Matilda', fit: 'warm australian female, straightforward adventurer or soldier woman'  },
-    { id: 'ThT5KcBeYPX3keUQqHPh', label: 'Dorothy', fit: 'elderly wise female, grandmother figure, ancient crone, old sage'     },
-    { id: 'jsCqWAovK2LkecY7zXl4', label: 'Freya',   fit: 'confident young american female, bold warrior woman, fierce leader'   },
-    { id: 'piTKgcLEGmPE4e6mEKli', label: 'Nicole',  fit: 'breathy intimate female, seductive, secretive, or deeply afraid'      },
+    { id: 'af_heart',   label: 'Heart',    fit: 'warm engaging female, kind innkeeper, nurturing healer, or loving mother'  },
+    { id: 'af_bella',   label: 'Bella',    fit: 'soft gentle female, timid servant, shy maiden, or frightened villager'    },
+    { id: 'af_nova',    label: 'Nova',     fit: 'bright energetic female, young barmaid, excited apprentice, or bold girl'  },
+    { id: 'af_sarah',   label: 'Sarah',    fit: 'calm natural female, wise elder, village elder, or steady noblewoman'     },
+    { id: 'bf_emma',    label: 'Emma',     fit: 'warm british female, refined noble lady, composed diplomat, or spy'       },
+    { id: 'bf_isabella',label: 'Isabella', fit: 'commanding british female, queen, high priestess, or cold villain'        },
   ],
   neutral: [
-    { id: 'onwK4e9ZLuTAKqWW03F9', label: 'Daniel',  fit: 'deep resonant neutral, ancient being, spirit, or inhuman entity'     },
-    { id: 'N2lVS1w4EtoT3dr4eOWO', label: 'Callum',  fit: 'rough hollow neutral, monstrous creature or corrupted spirit'        },
+    { id: 'af_sky',    label: 'Sky',     fit: 'light airy neutral, spirit, faerie, or otherworldly entity'                 },
+    { id: 'af_nicole', label: 'Nicole',  fit: 'breathy hollow neutral, wraith, ancient being, or mysterious presence'      },
   ],
 };
 
-// Build a description of all voices in a pool for Claude to choose from
+async function loadKokoro(onProgress) {
+  if (kokoroReady) return true;
+  if (kokoroLoading) return false;
+  kokoroLoading = true;
+  try {
+    // Dynamic import from jsDelivr CDN
+    const { KokoroTTS } = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.0/dist/kokoro.mjs');
+    onProgress && onProgress('Downloading voice model (~86MB)...');
+    kokoroTTS = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+      dtype: 'q8',
+      device: 'wasm',
+    });
+    kokoroReady = true;
+    kokoroLoading = false;
+    onProgress && onProgress('Voice model ready.');
+    return true;
+  } catch(e) {
+    kokoroLoading = false;
+    console.error('[Chronicle] Kokoro load failed:', e);
+    return false;
+  }
+}
+
+// Convert Kokoro AudioData to a playable blob URL
+function kokoroAudioToUrl(audio) {
+  // audio.toWav() returns a Uint8Array WAV buffer
+  const wav = audio.toWav ? audio.toWav() : audio;
+  const blob = new Blob([wav], { type: 'audio/wav' });
+  return URL.createObjectURL(blob);
+}
+
+async function speakSegment(text, voiceId) {
+  if (!kokoroReady || !kokoroTTS) return;
+  return new Promise(async (resolve) => {
+    try {
+      const audio = await kokoroTTS.generate(text, { voice: voiceId });
+      const url = kokoroAudioToUrl(audio);
+      currentAudio = new Audio(url);
+      currentAudio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+      currentAudio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+      await currentAudio.play();
+    } catch(e) {
+      console.warn('[Chronicle] speakSegment error:', e);
+      resolve();
+    }
+  });
+}
+
+async function speakText(text) {
+  const { voiceId: narratorVoiceId } = getSettings();
+  if (!narratorVoiceId) return;
+
+  // Load Kokoro if not ready yet
+  if (!kokoroReady) {
+    const indicator = appendSpeakingIndicator();
+    document.getElementById('voice-btn').classList.add('speaking');
+    document.getElementById('input-hint').textContent = '⏳ Loading voice model...';
+    const ok = await loadKokoro((msg) => {
+      document.getElementById('input-hint').textContent = msg;
+    });
+    indicator.remove();
+    if (!ok) {
+      document.getElementById('voice-btn').classList.remove('speaking');
+      document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
+      showError('Could not load voice model. Check your connection.');
+      return;
+    }
+  }
+
+  stopAudio();
+  const indicator = appendSpeakingIndicator();
+  document.getElementById('voice-btn').classList.add('speaking');
+  document.getElementById('input-hint').textContent = '🔊 Speaking... tap 🎤 to stop';
+
+  const cleanup = () => {
+    indicator.remove();
+    document.getElementById('voice-btn').classList.remove('speaking');
+    document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
+  };
+
+  try {
+    const segments = parseSegments(text);
+
+    if (segments.length === 0 || segments.every(s => s.type === 'narrator')) {
+      await speakSegment(text, narratorVoiceId);
+      cleanup();
+      return;
+    }
+
+    for (const seg of segments) {
+      if (!document.getElementById('voice-btn').classList.contains('speaking')) break;
+      let segVoice = narratorVoiceId;
+      if (seg.type === 'character') {
+        const npcId = await getNpcVoice(seg.name, seg.desc || null);
+        segVoice = npcId || narratorVoiceId;
+      }
+      await speakSegment(seg.text, segVoice);
+    }
+    cleanup();
+  } catch(e) {
+    cleanup();
+    console.error('[Chronicle] speakText error:', e);
+  }
+}
+
+// ── NPC voice assignment (pool-based, Claude-cast) ───────────
+let npcVoices = {};
+
 function poolChoicePrompt(pool) {
   return VOICE_POOL[pool].map((v, i) => `${i}: ${v.label} — ${v.fit}`).join('\n');
 }
 
-// Ask Claude (synchronously via a quick cheap call) which voice best fits the NPC
 async function chooseVoiceForNpc(name, desc, pool) {
   const { anthropicKey } = getSettings();
   const options = poolChoicePrompt(pool);
   const prompt = `You are casting a voice actor for a fantasy RPG character.
-
 Character name: ${name}
 Character description: ${desc || 'unknown'}
-
 Available voices (pick the best fit by number only):
 ${options}
-
 Reply with a single digit — the number of the best matching voice. Nothing else.`;
-
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1291,7 +1528,6 @@ Reply with a single digit — the number of the best matching voice. Nothing els
   } catch(e) {
     console.warn('[Chronicle] Voice casting failed, using fallback:', e.message);
   }
-  // Fallback: pick first unused voice in pool
   const used = Object.values(npcVoices).map(v => v.voiceId);
   const unused = VOICE_POOL[pool].find(v => !used.includes(v.id));
   return (unused || VOICE_POOL[pool][0]).id;
@@ -1299,8 +1535,6 @@ Reply with a single digit — the number of the best matching voice. Nothing els
 
 async function getNpcVoice(name, desc) {
   if (npcVoices[name]) return npcVoices[name].voiceId;
-
-  // Determine gender pool
   const d = (desc || '').toLowerCase();
   let pool;
   if (d.includes('female') || d.includes('woman') || d.includes('girl')) {
@@ -1310,139 +1544,11 @@ async function getNpcVoice(name, desc) {
   } else {
     pool = 'male';
   }
-
   const voiceId = await chooseVoiceForNpc(name, desc, pool);
   npcVoices[name] = { voiceId, description: desc || '' };
   const chosen = [...VOICE_POOL.male, ...VOICE_POOL.female, ...VOICE_POOL.neutral].find(v => v.id === voiceId);
   console.log(`[Chronicle] Cast ${name} as ${chosen?.label || voiceId}`);
   return voiceId;
-}
-
-// ── Speak a single segment with correct voice ────────────────
-async function speakSegment(text, voiceIdToUse) {
-  const { elevenKey } = getSettings();
-  return new Promise(async (resolve) => {
-    try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceIdToUse}/stream`, {
-        method: 'POST',
-        headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          model_id: TTS_MODEL,
-          voice_settings: { stability: 0.60, similarity_boost: 0.50, style: 0.10, use_speaker_boost: false },
-        }),
-      });
-      if (!res.ok) { resolve(); return; }
-      const canStream = window.MediaSource && MediaSource.isTypeSupported('audio/mpeg');
-      if (canStream) await streamMediaSource(res, resolve);
-      else           await streamBlob(res, resolve);
-    } catch(e) { resolve(); }
-  });
-}
-
-// ── Main speakText — orchestrates all segments ───────────────
-async function speakText(text) {
-  const { elevenKey, voiceId: narratorVoiceId } = getSettings();
-  if (!elevenKey || !narratorVoiceId) return;
-
-  stopAudio();
-  const indicator = appendSpeakingIndicator();
-  document.getElementById('voice-btn').classList.add('speaking');
-  document.getElementById('input-hint').textContent = '🔊 Speaking... tap 🎤 to stop';
-
-  const cleanup = () => {
-    indicator.remove();
-    document.getElementById('voice-btn').classList.remove('speaking');
-    document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
-  };
-
-  try {
-    const segments = parseSegments(text);
-
-    // If no tags found, fall back to speaking full text as narrator
-    if (segments.length === 0 || segments.every(s => s.type === 'narrator')) {
-      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${narratorVoiceId}/stream`, {
-        method: 'POST',
-        headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          model_id: TTS_MODEL,
-          voice_settings: { stability: 0.60, similarity_boost: 0.50, style: 0.10, use_speaker_boost: false },
-        }),
-      });
-      if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
-      const canStream = window.MediaSource && MediaSource.isTypeSupported('audio/mpeg');
-      if (canStream) await streamMediaSource(res, cleanup);
-      else           await streamBlob(res, cleanup);
-      return;
-    }
-
-    // Play segments in sequence
-    for (const seg of segments) {
-      // Check if user stopped playback mid-sequence
-      if (!document.getElementById('voice-btn').classList.contains('speaking')) break;
-
-      let segVoiceId = narratorVoiceId;
-
-      if (seg.type === 'character') {
-        // Get or create NPC voice
-        const npcId = await getNpcVoice(seg.name, seg.desc || null);
-        segVoiceId = npcId || narratorVoiceId;
-      }
-
-      await speakSegment(seg.text, segVoiceId);
-    }
-
-    cleanup();
-
-  } catch(e) {
-    cleanup();
-    if (!e.message?.includes('aborted')) showError('Voice failed. Check ElevenLabs key.');
-  }
-}
-
-async function streamMediaSource(response, cleanup) {
-  return new Promise(resolve => {
-    mediaSource = new MediaSource();
-    currentAudio = new Audio();
-    currentAudio.src = URL.createObjectURL(mediaSource);
-    mediaSource.addEventListener('sourceopen', async () => {
-      sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
-      const reader = response.body.getReader();
-      let started = false;
-      const appendNext = () => { if (audioQueue.length && !sourceBuffer.updating) sourceBuffer.appendBuffer(audioQueue.shift()); };
-      sourceBuffer.addEventListener('updateend', appendNext);
-      const pump = async () => {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            const end = () => {
-              if (sourceBuffer.updating) { sourceBuffer.addEventListener('updateend', end, {once:true}); return; }
-              if (audioQueue.length)     { sourceBuffer.appendBuffer(audioQueue.shift()); sourceBuffer.addEventListener('updateend', end, {once:true}); return; }
-              if (mediaSource.readyState === 'open') mediaSource.endOfStream();
-            };
-            end(); break;
-          }
-          audioQueue.push(value);
-          if (!sourceBuffer.updating) appendNext();
-          if (!started) { started = true; currentAudio.play().catch(()=>{}); }
-        }
-      };
-      currentAudio.onended = () => { stopAudio(); cleanup(); resolve(); };
-      currentAudio.onerror = () => { stopAudio(); cleanup(); resolve(); };
-      pump();
-    });
-  });
-}
-
-async function streamBlob(response, cleanup) {
-  const chunks = [];
-  const reader = response.body.getReader();
-  while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
-  const url = URL.createObjectURL(new Blob(chunks, { type: 'audio/mpeg' }));
-  currentAudio = new Audio(url);
-  currentAudio.onended = () => { stopAudio(); URL.revokeObjectURL(url); cleanup(); };
-  await currentAudio.play();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1505,6 +1611,210 @@ function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(e
 function escHtml(s) {
   if (!s) return '';
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+}
+
+// ═══════════════════════════════════════════════════════════
+// DOCUMENT IMPORT
+// ═══════════════════════════════════════════════════════════
+let importFiles = [];      // { name, content } array
+let importExtracted = {};  // the parsed docs from Claude
+
+function handleImportDrop(e) {
+  e.preventDefault();
+  document.getElementById('import-dropzone').classList.remove('drag-over');
+  handleImportFiles(e.dataTransfer.files);
+}
+
+async function handleImportFiles(fileList) {
+  for (const file of fileList) {
+    // Skip duplicates
+    if (importFiles.find(f => f.name === file.name)) continue;
+    const content = await readFileAsText(file);
+    importFiles.push({ name: file.name, size: file.size, content });
+  }
+  renderImportFileList();
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => resolve(`[Could not read ${file.name}]`);
+    reader.readAsText(file);
+  });
+}
+
+function renderImportFileList() {
+  const list = document.getElementById('import-file-list');
+  const btn  = document.getElementById('import-analyse-btn');
+  if (importFiles.length === 0) {
+    list.style.display = 'none';
+    btn.style.display  = 'none';
+    return;
+  }
+  list.style.display = 'flex';
+  btn.style.display  = 'block';
+  btn.disabled = false;
+  list.innerHTML = importFiles.map((f, i) => `
+    <div class="import-file-item">
+      <span class="import-file-name">${escHtml(f.name)}</span>
+      <span class="import-file-size">${formatBytes(f.size)}</span>
+      <button class="import-file-remove" onclick="removeImportFile(${i})">✕</button>
+    </div>`).join('');
+}
+
+function removeImportFile(idx) {
+  importFiles.splice(idx, 1);
+  renderImportFileList();
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+const IMPORT_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You will be given one or more documents from a previous RPG session — these may be chat transcripts, session notes, character sheets, world notes, or any combination.
+
+Extract everything you can and return a JSON object with these exact keys:
+{
+  "gameName": "a short evocative title for this chronicle",
+  "characterName": "the player character's name",
+  "worldState": "rich description of the world, its politics, factions, geography, tone, and current situation",
+  "characterSheet": "everything about the player character — appearance, abilities, background, equipment, strengths, weaknesses, current condition",
+  "npcDossier": "every named NPC mentioned — name, relationship to player, personality, last known status or location",
+  "questLog": "all active and completed quests, goals, and unresolved story threads",
+  "cityLedger": "any city, territory, or organisation the player controls — resources, military, population, finances. Empty string if none.",
+  "sessionSummary": "a vivid 2-3 paragraph summary of where the story left off, written as an opening for the next session — atmospheric, present tense, placing the player in the world"
+}
+
+Rules:
+- Extract faithfully — do not invent details not in the source material
+- If information is missing or unclear, write what you can and note uncertainty
+- sessionSummary should feel like the opening of a novel chapter
+- Return raw JSON only — no markdown, no backticks, no preamble`;
+
+async function analyseImport() {
+  if (importFiles.length === 0) return;
+
+  const btn = document.getElementById('import-analyse-btn');
+  btn.disabled = true;
+
+  // Show analysing state
+  const body = document.getElementById('import-body');
+  const analysing = document.createElement('div');
+  analysing.className = 'import-analysing';
+  analysing.innerHTML = `<div>Reading your chronicles</div><div class="dots"><span>.</span><span>.</span><span>.</span></div>`;
+  body.appendChild(analysing);
+
+  // Build combined document text — truncate very large files to save tokens
+  // No truncation — send full file contents (one-time import, cost is acceptable)
+  const combined = importFiles.map(f => `=== FILE: ${f.name} ===\n\n${f.content}`).join('\n\n---\
+
+  try {
+    const reply = await callClaude(
+      [{ role: 'user', content: `Here are the source documents:
+
+${combined}
+
+Extract the chronicle data as JSON.` }],
+      IMPORT_SYSTEM,
+      8192
+    );
+
+    analysing.remove();
+
+    // Parse JSON
+    const jsonStart = reply.indexOf('{');
+    const jsonEnd   = reply.lastIndexOf('}') + 1;
+    if (jsonStart === -1) throw new Error('Could not parse extracted data. Try again.');
+    importExtracted = JSON.parse(reply.slice(jsonStart, jsonEnd));
+
+    showImportPreview();
+
+  } catch(e) {
+    analysing.remove();
+    btn.disabled = false;
+    showError('Extraction failed: ' + e.message);
+  }
+}
+
+function showImportPreview() {
+  showScreen('import-preview');
+
+  // Set game name
+  document.getElementById('import-game-name').value = importExtracted.gameName || '';
+
+  // Render preview sections
+  const sections = document.getElementById('preview-sections');
+  const fields = [
+    { key: 'characterSheet',  label: 'Character'         },
+    { key: 'worldState',      label: 'World State'        },
+    { key: 'npcDossier',      label: 'Known NPCs'         },
+    { key: 'questLog',        label: 'Quest Log'          },
+    { key: 'cityLedger',      label: 'City / Holdings'    },
+    { key: 'sessionSummary',  label: 'Opening Scene'      },
+  ];
+
+  sections.innerHTML = fields.map(f => {
+    const val = importExtracted[f.key] || '— Nothing found —';
+    return `
+      <div class="preview-section">
+        <div class="preview-section-header">${f.label}</div>
+        <div class="preview-section-body">${escHtml(val)}</div>
+      </div>`;
+  }).join('');
+}
+
+async function saveImportedGame() {
+  const btn = document.getElementById('import-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  const gameName = document.getElementById('import-game-name').value.trim()
+    || importExtracted.gameName
+    || 'Imported Chronicle';
+
+  const gameId = 'game-' + Date.now();
+  const now = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const meta = JSON.stringify({
+    name: gameName,
+    character: importExtracted.characterName || '',
+    lastPlayed: now, created: now, gameId,
+    imported: true,
+  }, null, 2);
+
+  try {
+    const files = [
+      [`saves/${gameId}/meta.json`,           meta],
+      [`saves/${gameId}/world-state.txt`,     importExtracted.worldState     || ''],
+      [`saves/${gameId}/character-sheet.txt`, importExtracted.characterSheet || ''],
+      [`saves/${gameId}/npc-dossier.txt`,     importExtracted.npcDossier     || ''],
+      [`saves/${gameId}/quest-log.txt`,       importExtracted.questLog       || ''],
+      [`saves/${gameId}/city-ledger.txt`,     importExtracted.cityLedger     || ''],
+      [`saves/${gameId}/session-summary.txt`, importExtracted.sessionSummary || ''],
+      [`saves/${gameId}/chat-history.json`,   '[]'],
+    ];
+
+    for (const [path, fileContent] of files) {
+      await ghWrite(path, fileContent);
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    // Reset import state
+    importFiles = [];
+    importExtracted = {};
+    document.getElementById('import-file-list').style.display = 'none';
+    document.getElementById('import-analyse-btn').style.display = 'none';
+
+    showSuccess('Chronicle imported successfully.');
+    setTimeout(() => loadGame(gameId), 800);
+
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = 'Save & Enter the Chronicle';
+    showError('Save failed: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -993,37 +993,53 @@ let audioQueue     = [];
 let confirmTimer   = null;
 let confirmSeconds = 3;
 let lastTranscript = '';
+let silenceTimer   = null;
 
 function initSpeechRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { showError('Speech recognition not supported. Use Chrome.'); return false; }
   recognition = new SR();
-  // continuous = true prevents Android from cutting off mid-sentence
-  recognition.continuous = true;
+  // continuous: false works reliably cross-platform.
+  // Android with continuous:true fires duplicate onresult events — avoided here.
+  recognition.continuous = false;
   recognition.interimResults = true;
   recognition.lang = 'en-US';
 
   recognition.onstart = () => {
     isListening = true;
     lastTranscript = '';
+    silenceTimer = null;
     document.getElementById('voice-btn').classList.add('listening');
     document.getElementById('input-hint').textContent = '🔴 Listening... tap again to stop';
   };
 
   recognition.onresult = (e) => {
+    // Reset silence timer on every new result
+    if (silenceTimer) clearTimeout(silenceTimer);
+
     let interim = '', final = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const t = e.results[i][0].transcript;
       if (e.results[i].isFinal) final += t; else interim += t;
     }
-    // Accumulate final results; show interim in real time
-    if (final) lastTranscript += final;
+
+    // Only append truly new final text — avoids Android duplicate firing
+    if (final && !lastTranscript.endsWith(final.trim())) {
+      lastTranscript += (lastTranscript ? ' ' : '') + final.trim();
+    }
+
     const display = lastTranscript + (interim ? ' ' + interim : '');
     const inp = document.getElementById('player-input');
     inp.value = display.trim(); autoResize(inp);
+
+    // After 2s of no new speech, stop and show confirm
+    silenceTimer = setTimeout(() => {
+      if (isListening) recognition.stop();
+    }, 2000);
   };
 
   recognition.onend = () => {
+    if (silenceTimer) clearTimeout(silenceTimer);
     isListening = false;
     document.getElementById('voice-btn').classList.remove('listening');
     document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
@@ -1032,11 +1048,12 @@ function initSpeechRecognition() {
   };
 
   recognition.onerror = (e) => {
+    if (silenceTimer) clearTimeout(silenceTimer);
     isListening = false;
     document.getElementById('voice-btn').classList.remove('listening');
     document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
     if (e.error === 'not-allowed') {
-      showError('Microphone blocked. On Android: open Chrome Settings → Site Settings → Microphone → allow this site.');
+      showError('Microphone blocked. On Android: Chrome menu → Settings → Site Settings → Microphone → allow this site.');
     } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
       showError(`Mic error: ${e.error}`);
     }

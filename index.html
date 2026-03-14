@@ -519,24 +519,18 @@ Player may operate a merchant enterprise. Track: funds, trade routes, inventory,
 SPEECH TAGGING — CRITICAL
 Every response must tag spoken dialogue and narration using this exact format:
 [N] for narrator/description text
-[C:Name|voice description] for the FIRST TIME a character speaks — the voice description must be a vivid, complete sentence describing exactly how the voice sounds
-[C:Name] for all subsequent lines from the same character once introduced
+[C:Name|gender] for the FIRST TIME a character speaks — gender must be exactly one of: male, female, neutral
+[C:Name] for all subsequent lines from the same character
 
-VOICE DESCRIPTION RULES — these descriptions are sent directly to an AI voice generator, so they must be rich and specific:
-- Always write a complete sentence, not fragments
-- Describe the sound of the voice itself: pitch, texture, pace, accent, age, emotion
-- Include personality and speaking style
-- Be specific and vivid — generic descriptions produce bad results
-- Examples of GOOD descriptions:
-  [C:Aldric|A deep, gravelly old man's voice with a slow deliberate cadence, weathered by decades of hard living, with a faint northern roughness to his consonants]
-  [C:Mira|A sharp quick young woman's voice, clipped and suspicious, with precise diction and an undercurrent of barely concealed anxiety]
-  [C:The Merchant|A smooth oily middle-aged male voice, overly warm and ingratiating, with a slight eastern lilt and the careful enunciation of someone hiding their accent]
-  [C:Old Hessa|A cracked elderly woman's voice, thin and reedy but surprisingly firm, with long vowels and the unhurried pace of someone who knows they will be heard]
-- Examples of BAD descriptions (too vague, will produce poor results):
-  [C:Aldric|old male gruff]
-  [C:Mira|young female suspicious]
+Examples:
+[N] The innkeeper wiped down the bar without looking up.
+[C:Aldric|male] "We don't get strangers this time of year."
+[N] He set down the rag slowly.
+[C:Aldric] "What is it you want?"
+[C:Mira|female] "He's lying. I can tell."
+[C:The Wraith|neutral] "You should not have come here."
 
-Every line of spoken dialogue must be tagged. Narration between dialogue must be tagged [N]. Never mix narration and dialogue in the same tag. Keep each tag on its own line.`;
+Use neutral for creatures, spirits, or anything non-human. Every line of spoken dialogue must be tagged. Narration between dialogue must be tagged [N]. Never mix narration and dialogue in the same tag. Keep each tag on its own line.`;
 
 const INTERVIEW_SYSTEM = `You are setting up a new fantasy RPG campaign. Interview the player to understand their desired world and character, then generate complete GM Bible documents.
 
@@ -890,21 +884,8 @@ async function loadGame(gameId) {
 
     // Restore NPC voices
     npcVoices = {};
-    usedPoolVoices.male = 0; usedPoolVoices.female = 0; usedPoolVoices.neutral = 0;
     if (loaded['npc-voices.json']) {
-      try {
-        npcVoices = JSON.parse(loaded['npc-voices.json'].content);
-        // Restore pool counters based on how many voices are already assigned
-        const assigned = Object.values(npcVoices);
-        assigned.forEach(v => {
-          const maleIdx   = VOICE_POOL.male.findIndex(p => p.id === v.voiceId);
-          const femaleIdx = VOICE_POOL.female.findIndex(p => p.id === v.voiceId);
-          const neutIdx   = VOICE_POOL.neutral.findIndex(p => p.id === v.voiceId);
-          if (maleIdx   >= 0) usedPoolVoices.male   = Math.max(usedPoolVoices.male,   maleIdx + 1);
-          if (femaleIdx >= 0) usedPoolVoices.female = Math.max(usedPoolVoices.female, femaleIdx + 1);
-          if (neutIdx   >= 0) usedPoolVoices.neutral = Math.max(usedPoolVoices.neutral, neutIdx + 1);
-        });
-      } catch(e) {}
+      try { npcVoices = JSON.parse(loaded['npc-voices.json'].content); } catch(e) {}
     }
 
     // Restore history or seed with world context
@@ -1233,56 +1214,107 @@ function parseSegments(text) {
 }
 
 // ── NPC Voice Pool ───────────────────────────────────────────
-// ElevenLabs default voices — stable IDs, available on all plans
-// Swap any voice ID here to customise the pool
+// ElevenLabs default voices — stable IDs, available on all plans.
+// 'fit' describes what kind of character this voice suits best.
 const VOICE_POOL = {
   male: [
-    { id: 'pNInz6obpgDQGcFmaJgB', label: 'Adam',   desc: 'deep american male, authoritative'    },
-    { id: 'VR6AewLTigWG4xSOukaG', label: 'Arnold', desc: 'gravelly strong male, intense'         },
-    { id: 'TxGEqnHWrfWFTfGW9XjX', label: 'Josh',   desc: 'young american male, clear and warm'  },
-    { id: 'yoZ06aMxZJJ28mfd3POQ', label: 'Sam',    desc: 'calm neutral male, measured'           },
-    { id: 'g5CIjZEefAph4nQFvHAz', label: 'Ethan',  desc: 'soft middle-aged male, thoughtful'    },
+    { id: 'pNInz6obpgDQGcFmaJgB', label: 'Adam',    fit: 'deep authoritative middle-aged man, serious and commanding'         },
+    { id: 'VR6AewLTigWG4xSOukaG', label: 'Arnold',  fit: 'gravelly intense male, battle-hardened warrior or thug'             },
+    { id: 'TxGEqnHWrfWFTfGW9XjX', label: 'Josh',    fit: 'young warm friendly male, earnest commoner or eager youth'          },
+    { id: 'yoZ06aMxZJJ28mfd3POQ', label: 'Sam',     fit: 'calm measured neutral male, scholar, clerk, or quiet advisor'       },
+    { id: 'g5CIjZEefAph4nQFvHAz', label: 'Ethan',   fit: 'soft thoughtful middle-aged male, healer, merchant, or gentle soul' },
+    { id: 'N2lVS1w4EtoT3dr4eOWO', label: 'Callum',  fit: 'raspy world-weary male, aging rogue, veteran, or bitter exile'      },
+    { id: 'onwK4e9ZLuTAKqWW03F9', label: 'Daniel',  fit: 'refined deep british male, nobleman, magistrate, or elder statesman' },
+    { id: 'ODq5zmih8GrVes37Dx0d', label: 'Patrick', fit: 'older distinguished male, wise mentor, high priest, or aged king'   },
+    { id: 'GBv7mTt0atIp3Br8iCZE', label: 'Thomas',  fit: 'mild soft-spoken male, timid servant, nervous informant, or coward' },
+    { id: 'IKne3meq5aSn9XLyUdCD', label: 'Charlie', fit: 'cheerful young male, street urchin, enthusiastic innkeeper, jester' },
   ],
   female: [
-    { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Bella',   desc: 'warm soft female, gentle'             },
-    { id: 'MF3mGyEYCl7XYWbV9V6O', label: 'Elli',    desc: 'young bright female, energetic'       },
-    { id: 'jBpfuIE2acCO8z3wKNLl', label: 'Gigi',    desc: 'playful young female, expressive'     },
-    { id: 'oWAxZDx7w5VEj9dCyTzz', label: 'Grace',   desc: 'refined british female, composed'     },
-    { id: 'z9fAnlkpzviPz146aGWa', label: 'Glinda',  desc: 'dramatic older female, commanding'   },
+    { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Bella',   fit: 'warm gentle female, kind innkeeper, nurturing healer, or soft noble'  },
+    { id: 'MF3mGyEYCl7XYWbV9V6O', label: 'Elli',    fit: 'young bright energetic female, curious girl, excited apprentice'      },
+    { id: 'jBpfuIE2acCO8z3wKNLl', label: 'Gigi',    fit: 'playful flirtatious young female, tavern girl, witty rogue, charmer'  },
+    { id: 'oWAxZDx7w5VEj9dCyTzz', label: 'Grace',   fit: 'refined composed british female, noble lady, cold diplomat, spy'      },
+    { id: 'z9fAnlkpzviPz146aGWa', label: 'Glinda',  fit: 'commanding dramatic older female, queen, high priestess, or villain'  },
+    { id: 'pFZP5JQG7iQjIQuC4Bku', label: 'Lily',    fit: 'soft whispery british female, mysterious oracle, secretive informant' },
+    { id: 'XrExE9yKIg1WjnnlVkGX', label: 'Matilda', fit: 'warm australian female, straightforward adventurer or soldier woman'  },
+    { id: 'ThT5KcBeYPX3keUQqHPh', label: 'Dorothy', fit: 'elderly wise female, grandmother figure, ancient crone, old sage'     },
+    { id: 'jsCqWAovK2LkecY7zXl4', label: 'Freya',   fit: 'confident young american female, bold warrior woman, fierce leader'   },
+    { id: 'piTKgcLEGmPE4e6mEKli', label: 'Nicole',  fit: 'breathy intimate female, seductive, secretive, or deeply afraid'      },
   ],
   neutral: [
-    { id: 'onwK4e9ZLuTAKqWW03F9', label: 'Daniel',  desc: 'deep british male, refined narrator'  },
-    { id: 'N2lVS1w4EtoT3dr4eOWO', label: 'Callum',  desc: 'raspy rugged male, world-weary'       },
+    { id: 'onwK4e9ZLuTAKqWW03F9', label: 'Daniel',  fit: 'deep resonant neutral, ancient being, spirit, or inhuman entity'     },
+    { id: 'N2lVS1w4EtoT3dr4eOWO', label: 'Callum',  fit: 'rough hollow neutral, monstrous creature or corrupted spirit'        },
   ],
 };
 
-// Track which pool voices are assigned so each NPC gets a unique one
-const usedPoolVoices = { male: 0, female: 0, neutral: 0 };
+// Build a description of all voices in a pool for Claude to choose from
+function poolChoicePrompt(pool) {
+  return VOICE_POOL[pool].map((v, i) => `${i}: ${v.label} — ${v.fit}`).join('\n');
+}
 
-function assignPoolVoice(desc) {
-  // Determine gender from description
+// Ask Claude (synchronously via a quick cheap call) which voice best fits the NPC
+async function chooseVoiceForNpc(name, desc, pool) {
+  const { anthropicKey } = getSettings();
+  const options = poolChoicePrompt(pool);
+  const prompt = `You are casting a voice actor for a fantasy RPG character.
+
+Character name: ${name}
+Character description: ${desc || 'unknown'}
+
+Available voices (pick the best fit by number only):
+${options}
+
+Reply with a single digit — the number of the best matching voice. Nothing else.`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 5,
+        system: 'You are a casting director. Reply with a single digit only.',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!res.ok) throw new Error('Claude unavailable');
+    const data = await res.json();
+    const idx = parseInt(data.content[0].text.trim(), 10);
+    if (!isNaN(idx) && idx >= 0 && idx < VOICE_POOL[pool].length) {
+      return VOICE_POOL[pool][idx].id;
+    }
+  } catch(e) {
+    console.warn('[Chronicle] Voice casting failed, using fallback:', e.message);
+  }
+  // Fallback: pick first unused voice in pool
+  const used = Object.values(npcVoices).map(v => v.voiceId);
+  const unused = VOICE_POOL[pool].find(v => !used.includes(v.id));
+  return (unused || VOICE_POOL[pool][0]).id;
+}
+
+async function getNpcVoice(name, desc) {
+  if (npcVoices[name]) return npcVoices[name].voiceId;
+
+  // Determine gender pool
   const d = (desc || '').toLowerCase();
   let pool;
-  if (d.includes('female') || d.includes('woman') || d.includes('girl') || d.includes("woman's")) {
+  if (d.includes('female') || d.includes('woman') || d.includes('girl')) {
     pool = 'female';
-  } else if (d.includes('neutral') || d.includes('creature') || d.includes('being') || d.includes('entity')) {
+  } else if (d.includes('neutral') || d.includes('creature') || d.includes('entity') || d.includes('spirit') || d.includes('being')) {
     pool = 'neutral';
   } else {
     pool = 'male';
   }
-  const voices = VOICE_POOL[pool];
-  const idx = usedPoolVoices[pool] % voices.length;
-  usedPoolVoices[pool]++;
-  return voices[idx].id;
-}
 
-function getNpcVoice(name, desc) {
-  // Return cached voice if we have one
-  if (npcVoices[name]) return npcVoices[name].voiceId;
-  // Assign next available pool voice
-  const voiceId = assignPoolVoice(desc);
+  const voiceId = await chooseVoiceForNpc(name, desc, pool);
   npcVoices[name] = { voiceId, description: desc || '' };
-  console.log(`[Chronicle] Assigned voice for ${name}: ${voiceId}`);
+  const chosen = [...VOICE_POOL.male, ...VOICE_POOL.female, ...VOICE_POOL.neutral].find(v => v.id === voiceId);
+  console.log(`[Chronicle] Cast ${name} as ${chosen?.label || voiceId}`);
   return voiceId;
 }
 
@@ -1354,7 +1386,7 @@ async function speakText(text) {
 
       if (seg.type === 'character') {
         // Get or create NPC voice
-        const npcId = getNpcVoice(seg.name, seg.desc || null);
+        const npcId = await getNpcVoice(seg.name, seg.desc || null);
         segVoiceId = npcId || narratorVoiceId;
       }
 

@@ -1709,8 +1709,7 @@ async function analyseImport() {
 
   // Build combined document text — truncate very large files to save tokens
   // No truncation — send full file contents (one-time import, cost is acceptable)
-  const combined = importFiles.map(f => `=== FILE: ${f.name} ===\n\n${f.content}`).join('\n\n---\
-
+  const combined = importFiles.map(f => `=== FILE: ${f.name} ===\n\n${f.content}`).join('\n\n---\n\n');
   try {
     const reply = await callClaude(
       [{ role: 'user', content: `Here are the source documents:

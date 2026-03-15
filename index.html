@@ -1689,9 +1689,27 @@ function formatBytes(b) {
   return (b/1048576).toFixed(1) + ' MB';
 }
 
-const IMPORT_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You will be given one or more documents from a previous RPG session — these may be chat transcripts, session notes, character sheets, world notes, or any combination.
+// ── Import system prompts ────────────────────────────────────
 
-Extract everything you can and return a JSON object with these exact keys:
+// Stage 1: chunk summarizer — condenses a piece of a large document
+const IMPORT_CHUNK_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You are reading a portion of a large campaign document. Extract and preserve every meaningful detail from this chunk.
+
+Write a compact but complete summary covering:
+- Character names, relationships, personalities, and current status
+- Locations visited and their descriptions
+- Events that occurred and their consequences
+- Decisions made and their outcomes
+- Any quests, goals, or unresolved threads
+- Resources, equipment, or notable items
+- World details — politics, factions, geography, lore
+- Any agreements, debts, or ongoing tensions
+
+Preserve specific names, places, and details precisely. Do not invent. Do not omit anything that could matter for continuing the story. Write in compact prose.`;
+
+// Stage 2: final extraction — merges chunk summaries into the GM Bible JSON
+const IMPORT_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You have been given summaries of a previous campaign. Synthesize everything into a complete GM Bible.
+
+Return a JSON object with these exact keys:
 {
   "gameName": "a short evocative title for this chronicle",
   "characterName": "the player character's name",
@@ -1700,14 +1718,39 @@ Extract everything you can and return a JSON object with these exact keys:
   "npcDossier": "every named NPC mentioned — name, relationship to player, personality, last known status or location",
   "questLog": "all active and completed quests, goals, and unresolved story threads",
   "cityLedger": "any city, territory, or organisation the player controls — resources, military, population, finances. Empty string if none.",
-  "sessionSummary": "a vivid 2-3 paragraph summary of where the story left off, written as an opening for the next session — atmospheric, present tense, placing the player in the world"
+  "sessionSummary": "a vivid summary of where the story left off, written as an opening for the next session — atmospheric, present tense, placing the player in the world"
 }
 
 Rules:
-- Extract faithfully — do not invent details not in the source material
-- If information is missing or unclear, write what you can and note uncertainty
+- Synthesize faithfully — do not invent details not in the source material
+- If information conflicts across summaries, use the most recent version
 - sessionSummary should feel like the opening of a novel chapter
 - Return raw JSON only — no markdown, no backticks, no preamble`;
+
+// Rough token estimator — 1 token ≈ 4 chars for English text
+function estimateTokens(text) {
+  return Math.ceil(text.length / 4);
+}
+
+// Split text into chunks of ~40k tokens each (safe margin under 200k limit)
+function chunkText(text, maxTokens = 40000) {
+  const maxChars = maxTokens * 4;
+  if (text.length <= maxChars) return [text];
+  const chunks = [];
+  // Split on paragraph boundaries where possible
+  const paragraphs = text.split(/\n{2,}/);
+  let current = '';
+  for (const para of paragraphs) {
+    if ((current + para).length > maxChars && current.length > 0) {
+      chunks.push(current.trim());
+      current = para;
+    } else {
+      current += (current ? '\n\n' : '') + para;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
 
 async function analyseImport() {
   if (importFiles.length === 0) return;
@@ -1715,30 +1758,59 @@ async function analyseImport() {
   const btn = document.getElementById('import-analyse-btn');
   btn.disabled = true;
 
-  // Show analysing state
   const body = document.getElementById('import-body');
   const analysing = document.createElement('div');
   analysing.className = 'import-analysing';
   analysing.innerHTML = `<div>Reading your chronicles</div><div class="dots"><span>.</span><span>.</span><span>.</span></div>`;
   body.appendChild(analysing);
 
-  // Build combined document text — truncate very large files to save tokens
-  // No truncation — send full file contents (one-time import, cost is acceptable)
-  const combined = importFiles.map(f => `=== FILE: ${f.name} ===\n\n${f.content}`).join('\n\n---\n\n');
+  const updateStatus = (msg) => {
+    analysing.innerHTML = `<div>${msg}</div><div class="dots"><span>.</span><span>.</span><span>.</span></div>`;
+  };
+
   try {
+    // Combine all files into one text block
+    const combined = importFiles
+      .map(f => `=== FILE: ${f.name} ===\n\n${f.content}`)
+      .join('\n\n---\n\n');
+
+    const totalTokens = estimateTokens(combined);
+    let finalInput;
+
+    if (totalTokens <= 120000) {
+      // Small enough — send directly
+      updateStatus('Extracting chronicle data...');
+      finalInput = `Here are the source documents:\n\n${combined}\n\nExtract the chronicle data as JSON.`;
+    } else {
+      // Too large — chunk and summarize first
+      const chunks = chunkText(combined);
+      updateStatus(`Large import detected — summarizing ${chunks.length} sections...`);
+
+      const chunkSummaries = [];
+      for (let i = 0; i < chunks.length; i++) {
+        updateStatus(`Summarizing section ${i + 1} of ${chunks.length}...`);
+        const summary = await callClaude(
+          [{ role: 'user', content: `Campaign document section ${i + 1} of ${chunks.length}:\n\n${chunks[i]}\n\nSummarize all meaningful details.` }],
+          IMPORT_CHUNK_SYSTEM,
+          4096
+        );
+        chunkSummaries.push(`=== SECTION ${i + 1} SUMMARY ===\n\n${summary}`);
+        // Small delay to avoid rate limiting
+        if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 500));
+      }
+
+      updateStatus('Synthesizing into GM Bible...');
+      finalInput = `Here are summaries of a previous campaign:\n\n${chunkSummaries.join('\n\n---\n\n')}\n\nSynthesize into the GM Bible JSON.`;
+    }
+
     const reply = await callClaude(
-      [{ role: 'user', content: `Here are the source documents:
-
-${combined}
-
-Extract the chronicle data as JSON.` }],
+      [{ role: 'user', content: finalInput }],
       IMPORT_SYSTEM,
       8192
     );
 
     analysing.remove();
 
-    // Parse JSON
     const jsonStart = reply.indexOf('{');
     const jsonEnd   = reply.lastIndexOf('}') + 1;
     if (jsonStart === -1) throw new Error('Could not parse extracted data. Try again.');

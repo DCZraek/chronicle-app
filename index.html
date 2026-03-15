@@ -1205,14 +1205,8 @@ function buildContext() {
   const logBlock = compressionLog.length > 0 ? [
     {
       role: 'user',
-      content: '[CHRONICLE LOG — summary of prior events]
-
-' +
-        compressionLog.map(e => e.mechanical).join('
-
----
-
-')
+      content: '[CHRONICLE LOG — summary of prior events]\n\n' +
+        compressionLog.map(e => e.mechanical).join('\n\n---\n\n')
     },
     { role: 'assistant', content: '[Chronicle acknowledged.]' }
   ] : [];

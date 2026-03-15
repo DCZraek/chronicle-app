@@ -514,6 +514,9 @@ body::before {
       <div style="font-size:0.92rem;color:var(--ash);font-style:italic;line-height:1.7;">
         Upload any files from a previous RPG — chat exports, session notes, character sheets, transcripts. Claude will read them and extract everything it needs to continue your story.
       </div>
+      <div style="font-size:0.78rem;color:var(--gold-dim);font-style:italic;line-height:1.6;padding:8px 12px;border:1px solid rgba(184,146,42,0.15);border-radius:3px;">
+        ✦ Files are processed in alphabetical order. For best results, name your files with a number prefix — e.g. <em>01_session1.txt, 02_session2.txt</em> — so the most recent events are read last.
+      </div>
 
       <!-- Drop zone -->
       <div id="import-dropzone"
@@ -1714,40 +1717,46 @@ function formatBytes(b) {
 // ── Import system prompts ────────────────────────────────────
 
 // Stage 1: chunk summarizer — condenses a piece of a large document
-const IMPORT_CHUNK_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You are reading a portion of a large campaign document. Extract and preserve every meaningful detail from this chunk.
+const IMPORT_CHUNK_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You are reading a portion of a campaign document. The chunk header will tell you its position in the overall sequence — pay close attention to this so you preserve chronological order.
 
 Write a compact but complete summary covering:
-- Character names, relationships, personalities, and current status
+- Character names, relationships, personalities, and current status AS OF THIS CHUNK
 - Locations visited and their descriptions
-- Events that occurred and their consequences
+- Events that occurred and their consequences, in the order they happened
 - Decisions made and their outcomes
-- Any quests, goals, or unresolved threads
-- Resources, equipment, or notable items
+- Any quests, goals, or unresolved threads introduced or resolved here
+- Resources, equipment, or notable items gained or lost
 - World details — politics, factions, geography, lore
-- Any agreements, debts, or ongoing tensions
+- Any agreements, debts, or ongoing tensions established or resolved
 
-Preserve specific names, places, and details precisely. Do not invent. Do not omit anything that could matter for continuing the story. Write in compact prose.`;
+Important: If a character's status, location, or relationship changes during this chunk, record the FINAL state at the end of the chunk, not the beginning. Mark it clearly as "current state as of this section."
+
+Preserve specific names, places, and details precisely. Do not invent. Do not omit anything consequential. Write in compact prose.`;
 
 // Stage 2: final extraction — merges chunk summaries into the GM Bible JSON
-const IMPORT_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You have been given summaries of a previous campaign. Synthesize everything into a complete GM Bible.
+const IMPORT_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You have been given summaries of a previous campaign in chronological order, from earliest to most recent. Synthesize everything into a complete GM Bible that reflects the current state of the world at the END of the campaign.
 
 Return a JSON object with these exact keys:
 {
   "gameName": "a short evocative title for this chronicle",
   "characterName": "the player character's name",
-  "worldState": "rich description of the world, its politics, factions, geography, tone, and current situation",
-  "characterSheet": "everything about the player character — appearance, abilities, background, equipment, strengths, weaknesses, current condition",
-  "npcDossier": "every named NPC mentioned — name, relationship to player, personality, last known status or location",
-  "questLog": "all active and completed quests, goals, and unresolved story threads",
-  "cityLedger": "any city, territory, or organisation the player controls — resources, military, population, finances. Empty string if none.",
-  "sessionSummary": "a vivid summary of where the story left off, written as an opening for the next session — atmospheric, present tense, placing the player in the world"
+  "worldState": "the current state of the world as of the most recent events — politics, factions, geography, tone, and situation NOW",
+  "characterSheet": "the player character's current state — appearance, abilities, background, equipment, strengths, weaknesses, condition NOW",
+  "npcDossier": "every named NPC — name, relationship to player, personality, and their status/location as of the most recent events",
+  "questLog": "all currently active quests and unresolved threads (completed quests may be briefly noted as background)",
+  "cityLedger": "any city, territory, or organisation the player currently controls — current resources, military, population, finances. Empty string if none.",
+  "sessionSummary": "a vivid narrative of where the story currently stands — atmospheric, present tense, placing the player in the world as it is NOW, ready to continue"
 }
 
-Rules:
-- Synthesize faithfully — do not invent details not in the source material
-- If information conflicts across summaries, use the most recent version
-- sessionSummary should feel like the opening of a novel chapter
-- Return raw JSON only — no markdown, no backticks, no preamble`;
+Chronology rules — these are critical:
+- The summaries are ordered from EARLIEST to MOST RECENT
+- When the same detail appears in multiple summaries, ALWAYS use the most recent version
+- If a character dies, they are dead — do not mention them as alive because they appeared in an earlier summary
+- If a quest was completed, mark it complete — do not list it as active because it appeared open in an earlier summary
+- If the player's location changed, use their most recent location
+- The sessionSummary must describe where things stand NOW, not a recap of the whole history
+
+Return raw JSON only — no markdown, no backticks, no preamble`;
 
 // Rough token estimator — 1 token ≈ 4 chars for English text
 function estimateTokens(text) {
@@ -1791,9 +1800,20 @@ async function analyseImport() {
   };
 
   try {
-    // Combine all files into one text block
-    const combined = importFiles
-      .map(f => `=== FILE: ${f.name} ===\n\n${f.content}`)
+    // Sort files by name so session1, session2 etc. process in order
+    const sortedFiles = [...importFiles].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    // Combine files with explicit sequence labels
+    const totalFiles = sortedFiles.length;
+    const combined = sortedFiles
+      .map((f, idx) => {
+        const position = totalFiles === 1
+          ? 'ONLY FILE'
+          : idx === 0 ? `FILE ${idx + 1} OF ${totalFiles} — EARLIEST`
+          : idx === totalFiles - 1 ? `FILE ${idx + 1} OF ${totalFiles} — MOST RECENT`
+          : `FILE ${idx + 1} OF ${totalFiles} — MIDDLE`;
+        return `=== ${position}: ${f.name} ===\n\n${f.content}`;
+      })
       .join('\n\n---\n\n');
 
     const totalTokens = estimateTokens(combined);
@@ -1802,27 +1822,30 @@ async function analyseImport() {
     if (totalTokens <= 120000) {
       // Small enough — send directly
       updateStatus('Extracting chronicle data...');
-      finalInput = `Here are the source documents:\n\n${combined}\n\nExtract the chronicle data as JSON.`;
+      finalInput = `Here are the source documents in chronological order (earliest to most recent):\n\n${combined}\n\nExtract the chronicle data as JSON reflecting the current state at the END of these events.`;
     } else {
-      // Too large — chunk and summarize first
+      // Too large — chunk and summarize first, preserving sequence
       const chunks = chunkText(combined);
-      updateStatus(`Large import detected — summarizing ${chunks.length} sections...`);
+      const totalChunks = chunks.length;
+      updateStatus(`Large import detected — summarizing ${totalChunks} sections in order...`);
 
       const chunkSummaries = [];
-      for (let i = 0; i < chunks.length; i++) {
-        updateStatus(`Summarizing section ${i + 1} of ${chunks.length}...`);
+      for (let i = 0; i < totalChunks; i++) {
+        const chunkPosition = i === 0 ? 'EARLIEST SECTION'
+          : i === totalChunks - 1 ? 'MOST RECENT SECTION'
+          : `MIDDLE SECTION ${i + 1} OF ${totalChunks}`;
+        updateStatus(`Summarizing section ${i + 1} of ${totalChunks}...`);
         const summary = await callClaude(
-          [{ role: 'user', content: `Campaign document section ${i + 1} of ${chunks.length}:\n\n${chunks[i]}\n\nSummarize all meaningful details.` }],
+          [{ role: 'user', content: `[${chunkPosition} — section ${i + 1} of ${totalChunks} in chronological order]\n\n${chunks[i]}\n\nSummarize all meaningful details, noting the current state of characters and events AT THE END of this section.` }],
           IMPORT_CHUNK_SYSTEM,
           4096
         );
-        chunkSummaries.push(`=== SECTION ${i + 1} SUMMARY ===\n\n${summary}`);
-        // Small delay to avoid rate limiting
-        if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 1500));
+        chunkSummaries.push(`=== SECTION ${i + 1} OF ${totalChunks} (${chunkPosition}) ===\n\n${summary}`);
+        if (i < totalChunks - 1) await new Promise(r => setTimeout(r, 1500));
       }
 
       updateStatus('Synthesizing into GM Bible...');
-      finalInput = `Here are summaries of a previous campaign:\n\n${chunkSummaries.join('\n\n---\n\n')}\n\nSynthesize into the GM Bible JSON.`;
+      finalInput = `Here are summaries of a previous campaign in chronological order from earliest to most recent:\n\n${chunkSummaries.join('\n\n---\n\n')}\n\nSynthesize into the GM Bible JSON reflecting the state of the world at the END of these events.`;
     }
 
     const reply = await callClaude(

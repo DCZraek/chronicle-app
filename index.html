@@ -1247,23 +1247,51 @@ HOLD or COMPRESS?` }],
 // ═══════════════════════════════════════════════════════════
 // CLAUDE API
 // ═══════════════════════════════════════════════════════════
-async function callClaude(messages, system, maxTokens = 1024) {
+async function callClaude(messages, system, maxTokens = 1024, retries = 4) {
   const { anthropicKey } = getSettings();
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': anthropicKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system, messages }),
-  });
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({}));
-    throw new Error(e?.error?.message || `API error ${res.status}`);
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff: 2s, 4s, 8s, 16s
+      const wait = Math.pow(2, attempt) * 1000;
+      console.log(`[Chronicle] Rate limited — retrying in ${wait/1000}s (attempt ${attempt}/${retries})`);
+      await new Promise(r => setTimeout(r, wait));
+    }
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system, messages }),
+    });
+
+    if (res.status === 429) {
+      // Check if Anthropic sent a retry-after header
+      const retryAfter = res.headers.get('retry-after');
+      if (retryAfter && attempt < retries) {
+        const wait = (parseInt(retryAfter) + 1) * 1000;
+        console.log(`[Chronicle] Rate limited — retry-after: ${retryAfter}s`);
+        await new Promise(r => setTimeout(r, wait));
+        continue;
+      }
+      lastError = new Error('Too many requests — please wait a moment and try again.');
+      continue;
+    }
+
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e?.error?.message || `API error ${res.status}`);
+    }
+
+    return (await res.json()).content[0].text;
   }
-  return (await res.json()).content[0].text;
+
+  throw lastError || new Error('Request failed after retries.');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1790,7 +1818,7 @@ async function analyseImport() {
         );
         chunkSummaries.push(`=== SECTION ${i + 1} SUMMARY ===\n\n${summary}`);
         // Small delay to avoid rate limiting
-        if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 500));
+        if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 1500));
       }
 
       updateStatus('Synthesizing into GM Bible...');

@@ -422,46 +422,12 @@ body::before {
       <div class="settings-hint">Get this from console.anthropic.com → API Keys</div>
     </div>
     <div class="settings-section">
-      <div class="settings-section-title">Voice Narration — Kokoro (Free, runs in browser)</div>
+      <div class="settings-section-title">Voice Narration — Browser TTS</div>
       <div>
         <label class="field-label">Narrator Voice</label>
         <div style="display:flex;gap:8px;align-items:center;">
           <select class="field-input" id="s-voice" style="cursor:pointer;flex:1;">
-            <optgroup label="American Male">
-              <option value="am_echo">Echo — clear, balanced (recommended narrator)</option>
-              <option value="am_adam">Adam — deep, authoritative</option>
-              <option value="am_michael">Michael — steady, older</option>
-              <option value="am_liam">Liam — calm, measured</option>
-              <option value="am_onyx">Onyx — deep, brooding</option>
-              <option value="am_fenrir">Fenrir — fierce, intense</option>
-              <option value="am_puck">Puck — mischievous, light</option>
-              <option value="am_eric">Eric — neutral, clear</option>
-            </optgroup>
-            <optgroup label="British Male">
-              <option value="bm_george">George — refined, British</option>
-              <option value="bm_fable">Fable — warm storyteller, British</option>
-              <option value="bm_lewis">Lewis — clear, British</option>
-              <option value="bm_daniel">Daniel — friendly, British</option>
-            </optgroup>
-            <optgroup label="American Female">
-              <option value="af_heart">Heart — warm and engaging</option>
-              <option value="af_bella">Bella — soft and gentle</option>
-              <option value="af_nova">Nova — bright and clear</option>
-              <option value="af_sarah">Sarah — calm and natural</option>
-              <option value="af_jessica">Jessica — confident, direct</option>
-              <option value="af_kore">Kore — cool and detached</option>
-              <option value="af_aoede">Aoede — melodic, lyrical</option>
-              <option value="af_river">River — flowing and gentle</option>
-              <option value="af_sky">Sky — light and airy</option>
-              <option value="af_nicole">Nicole — breathy, intimate</option>
-              <option value="af_alloy">Alloy — neutral, ambiguous</option>
-            </optgroup>
-            <optgroup label="British Female">
-              <option value="bf_emma">Emma — warm, British</option>
-              <option value="bf_isabella">Isabella — commanding, British</option>
-              <option value="bf_alice">Alice — clear, British</option>
-              <option value="bf_lily">Lily — soft, British</option>
-            </optgroup>
+            <option value="">Loading voices...</option>
           </select>
           <button id="preview-voice-btn" onclick="previewNarratorVoice()" style="
             background:var(--ember-dim);border:1px solid var(--ember);
@@ -475,7 +441,7 @@ body::before {
         </div>
         <div id="preview-status" style="font-size:0.75rem;color:var(--ash);font-style:italic;margin-top:6px;min-height:16px;"></div>
       </div>
-      <div class="settings-hint">No API key needed. Kokoro runs entirely in your browser. The model (~86MB) downloads once on first use and is then cached forever.</div>
+      <div class="settings-hint">Uses your browser's built-in voice engine. No download needed — works instantly.</div>
     </div>
     <div class="settings-section">
       <div class="settings-section-title">GitHub — Save File Sync</div>
@@ -500,23 +466,11 @@ body::before {
       <div class="top-bar-sub">Your Stories</div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
-      <button class="icon-btn" id="prepare-voices-btn" onclick="prepareVoices()">🔊 Prepare Voices</button>
       <button class="icon-btn" onclick="showScreen('import')">↑ Import</button>
       <button class="icon-btn" onclick="openSettingsFromLibrary()">⚙ Keys</button>
     </div>
   </div>
-  <!-- Voice preparation progress bar -->
-  <div id="voice-prep-bar" style="display:none; padding:10px 24px; background:rgba(13,11,8,0.8); border-bottom:1px solid rgba(184,146,42,0.15); flex-shrink:0;">
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div style="flex:1;">
-        <div style="font-family:'Cinzel',serif;font-size:0.68rem;letter-spacing:0.1em;color:var(--gold-dim);text-transform:uppercase;margin-bottom:6px;" id="voice-prep-label">Preparing voices...</div>
-        <div style="height:3px;background:rgba(184,146,42,0.15);border-radius:2px;overflow:hidden;">
-          <div id="voice-prep-progress" style="height:100%;background:var(--gold);border-radius:2px;width:0%;transition:width 0.3s ease;"></div>
-        </div>
-      </div>
-      <div style="font-size:0.75rem;color:var(--ash);flex-shrink:0;" id="voice-prep-count">0 / 18</div>
-    </div>
-  </div>
+
   <div class="scrollable">
     <div class="library-grid" id="library-grid">
       <div class="library-loading">Retrieving your chronicles...</div>
@@ -739,19 +693,19 @@ Make each value a rich detailed document. worldState: world overview, politics, 
 function getSettings() {
   return {
     anthropicKey: localStorage.getItem('ch_anthropic') || '',
-    voiceId:      localStorage.getItem('ch_voice')     || 'am_echo',
+    voiceName:    localStorage.getItem('ch_voice')     || '',
     githubToken:  localStorage.getItem('ch_github')    || '',
   };
 }
 
 function saveSettings() {
   const anthropic = document.getElementById('s-anthropic').value.trim();
-  const voice     = document.getElementById('s-voice').value.trim();
+  const voice     = document.getElementById('s-voice').value;
   const github    = document.getElementById('s-github').value.trim();
   if (!anthropic) { showError('Anthropic key is required.'); return; }
   if (!github)    { showError('GitHub token is required.'); return; }
   localStorage.setItem('ch_anthropic', anthropic);
-  localStorage.setItem('ch_voice',     voice || 'am_echo');
+  localStorage.setItem('ch_voice',     voice || '');
   localStorage.setItem('ch_github',    github);
   showSuccess('Settings saved.');
   setTimeout(() => showLibrary(), 600);
@@ -760,7 +714,7 @@ function saveSettings() {
 function openSettingsFromLibrary() {
   const s = getSettings();
   document.getElementById('s-anthropic').value = s.anthropicKey;
-  document.getElementById('s-voice').value     = s.voiceId || 'am_echo';
+  populateVoiceDropdown(s.voiceName);
   document.getElementById('s-github').value    = s.githubToken;
   document.getElementById('settings-subtitle').textContent = 'Update Keys';
   document.getElementById('settings-back').style.display = 'block';
@@ -821,14 +775,6 @@ async function showLibrary() {
   showScreen('library');
   const grid = document.getElementById('library-grid');
   grid.innerHTML = '<div class="library-loading">Retrieving your chronicles...</div>';
-
-  // Silently start loading Kokoro and warming voices in the background
-  // so they're ready before the player opens a game
-  if (!kokoroReady && !kokoroLoading) {
-    loadKokoro().then(() => {
-      warmAllVoicesBackground();
-    }).catch(() => {});
-  }
 
   try {
     const items = await ghList('saves');
@@ -1042,7 +988,6 @@ let activeGameId   = null;
 let activeFileShas = {};
 let messageHistory = [];
 let isThinking     = false;
-// npcVoices declared in Kokoro TTS section
 
 async function loadGame(gameId) {
   showScreen('game');
@@ -1053,7 +998,7 @@ async function loadGame(gameId) {
   setOrb('thinking');
 
   try {
-    const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json','npc-voices.json'];
+    const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json'];
     const loaded = {};
     await Promise.all(fileNames.map(async f => {
       const d = await ghRead(`saves/${gameId}/${f}`);
@@ -1067,12 +1012,6 @@ async function loadGame(gameId) {
         document.getElementById('game-title').textContent    = m.name      || 'The Chronicle';
         document.getElementById('game-subtitle').textContent = m.character || 'Session Active';
       } catch(e) {}
-    }
-
-    // Restore NPC voices
-    npcVoices = {};
-    if (loaded['npc-voices.json']) {
-      try { npcVoices = JSON.parse(loaded['npc-voices.json'].content); } catch(e) {}
     }
 
     // Restore history or seed with world context
@@ -1124,21 +1063,7 @@ async function loadGame(gameId) {
   }
 }
 
-// warmAllVoicesBackground is now defined in the Kokoro Worker Engine section above
 
-// Listen for cache size reports from the Service Worker
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('message', (event) => {
-    if (event.data?.type === 'CACHE_SIZE') {
-      const btn = document.getElementById('prepare-voices-btn');
-      if (btn && event.data.count > 0) {
-        btn.textContent = `✓ ${event.data.count} files cached`;
-        btn.style.color = 'var(--gold)';
-        btn.title = 'Kokoro voice files are cached locally — instant loading every session';
-      }
-    }
-  });
-}
 
 // ═══════════════════════════════════════════════════════════
 // EXIT & SAVE
@@ -1161,11 +1086,6 @@ async function saveToGitHub() {
   const histJson = JSON.stringify(messageHistory, null, 2);
   const r = await ghWrite(`saves/${activeGameId}/chat-history.json`, histJson, activeFileShas['chat-history.json'] || null);
   if (r?.content?.sha) activeFileShas['chat-history.json'] = r.content.sha;
-
-  // Save NPC voices
-  const voicesJson = JSON.stringify(npcVoices, null, 2);
-  const vr = await ghWrite(`saves/${activeGameId}/npc-voices.json`, voicesJson, activeFileShas['npc-voices.json'] || null);
-  if (vr?.content?.sha) activeFileShas['npc-voices.json'] = vr.content.sha;
 
   try {
     const metaFile = await ghRead(`saves/${activeGameId}/meta.json`);
@@ -1416,381 +1336,87 @@ function parseSegments(text) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// KOKORO TTS — in-browser, free, no API key
-// ═══════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════
-// KOKORO WEB WORKER ENGINE
-// All TTS generation runs off the main thread so the UI
-// never freezes during model load, warm-up, or synthesis.
+// TTS — Web Speech API (browser built-in, instant, no download)
 // ═══════════════════════════════════════════════════════════
 
-// Worker state
-let kokoroWorker   = null;
-let kokoroReady    = false;
-let kokoroLoading  = false;
-
-// Pending promise callbacks keyed by request id
-let pendingRequests = {};
-let requestIdCounter = 0;
-
-// Voice pool using Kokoro voice IDs — all 18 English voices
-const VOICE_POOL = {
-  male: [
-    { id: 'am_adam',    label: 'Adam',    fit: 'deep authoritative older male, commander, king, or powerful villain'       },
-    { id: 'am_echo',    label: 'Echo',    fit: 'clear balanced male, soldier, merchant, or reliable advisor'               },
-    { id: 'am_michael', label: 'Michael', fit: 'steady older male, innkeeper, guard captain, or seasoned veteran'         },
-    { id: 'am_liam',    label: 'Liam',    fit: 'calm measured male, scholar, scribe, or quiet man of few words'           },
-    { id: 'am_onyx',    label: 'Onyx',    fit: 'deep resonant male, brooding villain, gravelly warrior, or dark lord'     },
-    { id: 'am_fenrir',  label: 'Fenrir',  fit: 'fierce intense male, barbarian, berserker, or wild hunter'                },
-    { id: 'am_puck',    label: 'Puck',    fit: 'mischievous light male, trickster, jester, or cunning rogue'              },
-    { id: 'bm_george',  label: 'George',  fit: 'refined british male, nobleman, magistrate, or elder statesman'           },
-    { id: 'bm_lewis',   label: 'Lewis',   fit: 'clear british male, young knight, educated merchant, or minor lord'       },
-    { id: 'bm_daniel',  label: 'Daniel',  fit: 'warm british male, friendly tavern keeper, common folk, or kind stranger' },
-  ],
-  female: [
-    { id: 'af_heart',    label: 'Heart',    fit: 'warm engaging female, kind innkeeper, nurturing healer, or loving mother'  },
-    { id: 'af_bella',    label: 'Bella',    fit: 'soft gentle female, timid servant, shy maiden, or frightened villager'    },
-    { id: 'af_nova',     label: 'Nova',     fit: 'bright energetic female, young barmaid, excited apprentice, or bold girl'  },
-    { id: 'af_sarah',    label: 'Sarah',    fit: 'calm natural female, steady noblewoman, wise elder, or composed leader'   },
-    { id: 'af_jessica',  label: 'Jessica',  fit: 'clear confident female, city guard, no-nonsense merchant, or soldier'     },
-    { id: 'af_kore',     label: 'Kore',     fit: 'cool detached female, cold-blooded assassin, emotionless mage, or seer'  },
-    { id: 'af_aoede',    label: 'Aoede',    fit: 'melodic lyrical female, bard, singer, or enchantress with musical voice'  },
-    { id: 'af_river',    label: 'River',    fit: 'flowing gentle female, nature spirit, druid, or soft-spoken wild woman'   },
-    { id: 'bf_emma',     label: 'Emma',     fit: 'warm british female, refined noble lady, composed diplomat, or spy'       },
-    { id: 'bf_isabella', label: 'Isabella', fit: 'commanding british female, queen, high priestess, or cold villain'        },
-  ],
-  neutral: [
-    { id: 'af_sky',    label: 'Sky',    fit: 'light airy neutral, spirit, faerie, or otherworldly entity'              },
-    { id: 'af_nicole', label: 'Nicole', fit: 'breathy hollow neutral, wraith, ancient being, or mysterious presence'   },
-    { id: 'af_alloy',  label: 'Alloy',  fit: 'ambiguous steady neutral, automaton, construct, or inhuman voice'        },
-  ],
-};
-
-const ALL_VOICES = [
-  ...VOICE_POOL.male,
-  ...VOICE_POOL.female,
-  ...VOICE_POOL.neutral,
-];
-
-// Worker runs in kokoro-worker.js (real file, not blob — required for GitHub Pages CSP)
-
-// ── Worker lifecycle ─────────────────────────────────────────
-
-function createKokoroWorker() {
-  // Use a real hosted file instead of a blob URL so GitHub Pages CSP allows
-  // dynamic imports (esm.sh) inside the worker
-  const worker = new Worker('./kokoro-worker.js', { type: 'module' });
-
-  worker.onmessage = (e) => {
-    const msg = e.data;
-
-    if (msg.type === 'READY') {
-      kokoroReady   = true;
-      kokoroLoading = false;
-      // Resolve all pending LOAD promises
-      for (const key of Object.keys(pendingRequests)) {
-        if (key.startsWith('load_')) {
-          pendingRequests[key](true);
-          delete pendingRequests[key];
-        }
-      }
-    }
-
-    else if (msg.type === 'PROGRESS') {
-      // Forward progress text to any registered callback
-      if (pendingRequests['load_progress']) {
-        pendingRequests['load_progress'](msg.text);
-      }
-    }
-
-    else if (msg.type === 'ERROR') {
-      kokoroLoading = false;
-      for (const key of Object.keys(pendingRequests)) {
-        if (key.startsWith('load_')) {
-          pendingRequests[key](false);
-          delete pendingRequests[key];
-        }
-      }
-    }
-
-    else if (msg.type === 'AUDIO') {
-      const cb = pendingRequests[msg.id];
-      if (cb) {
-        cb({ ok: true, wav: new Uint8Array(msg.wav) });
-        delete pendingRequests[msg.id];
-      }
-    }
-
-    else if (msg.type === 'GENERATE_ERROR') {
-      const cb = pendingRequests[msg.id];
-      if (cb) {
-        cb({ ok: false });
-        delete pendingRequests[msg.id];
-      }
-    }
-
-    else if (msg.type === 'WARM_PROGRESS') {
-      const btn = document.getElementById('prepare-voices-btn');
-      if (btn) btn.textContent = `🔊 Warming ${msg.index + 1}/${msg.total}`;
-      // Also update prepareVoices progress bar if it's open
-      if (preparingVoices) {
-        const { count, progress, label } = preparingVoices;
-        count.textContent = `${msg.index + 1} / ${msg.total}`;
-        progress.style.width = `${Math.round(((msg.index + 1) / msg.total) * 100)}%`;
-        label.textContent = `Warming up ${msg.label}...`;
-      }
-    }
-
-    else if (msg.type === 'WARM_DONE') {
-      console.log('[Chronicle] Background voice warm-up complete.');
-      const btn = document.getElementById('prepare-voices-btn');
-      if (btn) {
-        btn.textContent = '✓ Voices Ready';
-        btn.style.color = 'var(--gold)';
-      }
-      if (preparingVoices) {
-        const { bar, label, progress, count, total, btn: pBtn } = preparingVoices;
-        progress.style.width = '100%';
-        count.textContent = `${total} / ${total}`;
-        label.textContent = 'All voices ready!';
-        pBtn.textContent = '✓ Voices Ready';
-        pBtn.style.color = 'var(--gold)';
-        pBtn.disabled = false;
-        setTimeout(() => { bar.style.display = 'none'; }, 3000);
-        preparingVoices = null;
-      }
-      if (navigator.serviceWorker?.controller) {
-        navigator.serviceWorker.controller.postMessage('CACHE_SIZE');
-      }
-    }
-  };
-
-  worker.onerror = (err) => {
-    console.error('[Chronicle] Kokoro worker error:', err);
-    kokoroLoading = false;
-  };
-
-  return worker;
+function getVoice(name) {
+  const voices = speechSynthesis.getVoices();
+  if (!name) return voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
+  return voices.find(v => v.name === name) || voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
 }
 
-async function loadKokoro(onProgress) {
-  if (kokoroReady) return true;
-  if (kokoroLoading) {
-    // Already loading — wait for it to finish
-    return new Promise((resolve) => {
-      pendingRequests['load_wait_' + Date.now()] = resolve;
-    });
-  }
-
-  kokoroLoading = true;
-
-  if (!kokoroWorker) {
-    kokoroWorker = createKokoroWorker();
-  }
-
-  if (onProgress) {
-    pendingRequests['load_progress'] = onProgress;
-  }
-
-  return new Promise((resolve) => {
-    pendingRequests['load_main'] = resolve;
-    kokoroWorker.postMessage({ type: 'LOAD' });
-  });
+function populateVoiceDropdown(selectedName) {
+  const sel = document.getElementById('s-voice');
+  if (!sel) return;
+  const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+  sel.innerHTML = voices.map(v =>
+    `<option value="${escHtml(v.name)}" ${v.name === selectedName ? 'selected' : ''}>${escHtml(v.name)}${v.localService ? ' ★' : ''}</option>`
+  ).join('');
+  if (!selectedName && voices.length > 0) sel.value = voices[0].name;
 }
 
-// Generate audio in the worker — returns a Uint8Array WAV
-function generateAudio(text, voice) {
-  return new Promise((resolve) => {
-    if (!kokoroReady || !kokoroWorker) {
-      resolve({ ok: false });
-      return;
-    }
-    const id = ++requestIdCounter;
-    pendingRequests[id] = resolve;
-    kokoroWorker.postMessage({ type: 'GENERATE', id, text, voice });
-  });
-}
+function speakText(text) {
+  if (!text) return;
+  speechSynthesis.cancel();
+  // Strip speech tags — just read the plain text
+  const clean = text
+    .replace(/\[N\]\s*/g, '')
+    .replace(/\[C:[^\]]+\]\s*/g, '')
+    .trim();
+  if (!clean) return;
 
-function wavToUrl(wav) {
-  const blob = new Blob([wav], { type: 'audio/wav' });
-  return URL.createObjectURL(blob);
-}
+  const { voiceName } = getSettings();
+  const utterance = new SpeechSynthesisUtterance(clean);
+  utterance.voice = getVoice(voiceName);
+  utterance.rate  = 0.95;
+  utterance.pitch = 1.0;
 
-async function speakSegment(text, voiceId) {
-  return new Promise(async (resolve) => {
-    try {
-      const result = await generateAudio(text, voiceId);
-      if (!result.ok) { resolve(); return; }
-      const url = wavToUrl(result.wav);
-      currentAudio = new Audio(url);
-      currentAudio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-      currentAudio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-      await currentAudio.play();
-    } catch(e) {
-      console.warn('[Chronicle] speakSegment error:', e);
-      resolve();
-    }
-  });
-}
-
-async function warmAllVoicesBackground() {
-  if (!kokoroReady || !kokoroWorker) return;
-  await new Promise(r => setTimeout(r, 1500));
-  kokoroWorker.postMessage({ type: 'WARM', voices: ALL_VOICES });
-}
-
-async function prepareVoices() {
-  const btn      = document.getElementById('prepare-voices-btn');
-  const bar      = document.getElementById('voice-prep-bar');
-  const label    = document.getElementById('voice-prep-label');
-  const progress = document.getElementById('voice-prep-progress');
-  const count    = document.getElementById('voice-prep-count');
-
-  if (kokoroReady && btn.textContent.includes('Ready')) {
-    showSuccess('All voices are already warmed up and ready.');
-    return;
-  }
-
-  btn.disabled = true;
-  bar.style.display = 'block';
-  label.textContent = 'Loading voice model...';
-  progress.style.width = '0%';
-
-  const ok = await loadKokoro((msg) => { label.textContent = msg; });
-  if (!ok) {
-    bar.style.display = 'none';
-    btn.disabled = false;
-    showError('Could not load voice model.');
-    return;
-  }
-
-  label.textContent = 'Warming voices...';
-  const total = ALL_VOICES.length;
-
-  // Use a flag so the main onmessage handler updates the bar
-  preparingVoices = { bar, label, progress, count, btn, total };
-  kokoroWorker.postMessage({ type: 'WARM', voices: ALL_VOICES });
-}
-
-// Track active prepareVoices UI state (set during manual warm, cleared on done)
-let preparingVoices = null;
-
-async function speakText(text) {
-  const { voiceId: narratorVoiceId } = getSettings();
-  if (!narratorVoiceId) return;
-
-  if (!kokoroReady) {
-    const indicator = appendSpeakingIndicator();
+  utterance.onstart = () => {
     document.getElementById('voice-btn').classList.add('speaking');
-    document.getElementById('input-hint').textContent = '⏳ Loading voice model...';
-    const ok = await loadKokoro((msg) => {
-      document.getElementById('input-hint').textContent = msg;
-    });
-    indicator.remove();
-    if (!ok) {
-      document.getElementById('voice-btn').classList.remove('speaking');
-      document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
-      showError('Could not load voice model. Check your connection.');
-      return;
-    }
-  }
-
-  stopAudio();
-  const indicator = appendSpeakingIndicator();
-  document.getElementById('voice-btn').classList.add('speaking');
-  document.getElementById('input-hint').textContent = '🔊 Speaking... tap 🎤 to stop';
-
-  const cleanup = () => {
-    indicator.remove();
+    document.getElementById('input-hint').textContent = '🔊 Speaking... tap 🎤 to stop';
+  };
+  utterance.onend = utterance.onerror = () => {
     document.getElementById('voice-btn').classList.remove('speaking');
     document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
   };
 
-  try {
-    const segments = parseSegments(text);
-    if (segments.length === 0 || segments.every(s => s.type === 'narrator')) {
-      await speakSegment(text, narratorVoiceId);
-      cleanup();
-      return;
-    }
-    for (const seg of segments) {
-      if (!document.getElementById('voice-btn').classList.contains('speaking')) break;
-      let segVoice = narratorVoiceId;
-      if (seg.type === 'character') {
-        const npcId = await getNpcVoice(seg.name, seg.desc || null);
-        segVoice = npcId || narratorVoiceId;
-      }
-      await speakSegment(seg.text, segVoice);
-    }
-    cleanup();
-  } catch(e) {
-    cleanup();
-    console.error('[Chronicle] speakText error:', e);
-  }
+  speechSynthesis.speak(utterance);
 }
 
-// ── NPC voice assignment (pool-based, Claude-cast) ───────────
-let npcVoices = {};
-
-function poolChoicePrompt(pool) {
-  return VOICE_POOL[pool].map((v, i) => `${i}: ${v.label} — ${v.fit}`).join('\n');
+function stopAudio() {
+  speechSynthesis.cancel();
 }
 
-async function chooseVoiceForNpc(name, desc, pool) {
-  const { anthropicKey } = getSettings();
-  const options = poolChoicePrompt(pool);
-  const prompt = `You are casting a voice actor for a fantasy RPG character.
-Character name: ${name}
-Character description: ${desc || 'unknown'}
-Available voices (pick the best fit by number only):
-${options}
-Reply with a single digit — the number of the best matching voice. Nothing else.`;
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 5,
-        system: 'You are a casting director. Reply with a single digit only.',
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) throw new Error('Claude unavailable');
-    const data = await res.json();
-    const idx = parseInt(data.content[0].text.trim(), 10);
-    if (!isNaN(idx) && idx >= 0 && idx < VOICE_POOL[pool].length) {
-      return VOICE_POOL[pool][idx].id;
-    }
-  } catch(e) {
-    console.warn('[Chronicle] Voice casting failed, using fallback:', e.message);
-  }
-  const used = Object.values(npcVoices).map(v => v.voiceId);
-  const unused = VOICE_POOL[pool].find(v => !used.includes(v.id));
-  return (unused || VOICE_POOL[pool][0]).id;
-}
+function previewNarratorVoice() {
+  const btn    = document.getElementById('preview-voice-btn');
+  const status = document.getElementById('preview-status');
 
-async function getNpcVoice(name, desc) {
-  if (npcVoices[name]) return npcVoices[name].voiceId;
-  const d = (desc || '').toLowerCase();
-  let pool;
-  if (d.includes('female') || d.includes('woman') || d.includes('girl')) {
-    pool = 'female';
-  } else if (d.includes('neutral') || d.includes('creature') || d.includes('entity') || d.includes('spirit') || d.includes('being')) {
-    pool = 'neutral';
-  } else {
-    pool = 'male';
+  if (speechSynthesis.speaking) {
+    speechSynthesis.cancel();
+    btn.textContent = '▶ Preview';
+    btn.style.background = 'var(--ember-dim)';
+    status.textContent = '';
+    return;
   }
-  const voiceId = await chooseVoiceForNpc(name, desc, pool);
-  npcVoices[name] = { voiceId, description: desc || '' };
-  const chosen = [...VOICE_POOL.male, ...VOICE_POOL.female, ...VOICE_POOL.neutral].find(v => v.id === voiceId);
-  console.log(`[Chronicle] Cast ${name} as ${chosen?.label || voiceId}`);
-  return voiceId;
+
+  const voiceName = document.getElementById('s-voice').value;
+  const utterance = new SpeechSynthesisUtterance(
+    'The fire burned low in the great hall. Outside, the wind moved through the trees like a warning no one had yet learned to read.'
+  );
+  utterance.voice = getVoice(voiceName);
+  utterance.rate  = 0.95;
+
+  btn.textContent = '■ Stop';
+  btn.style.background = 'var(--ember)';
+  status.textContent = `Playing: ${voiceName || 'default'}`;
+
+  utterance.onend = utterance.onerror = () => {
+    btn.textContent = '▶ Preview';
+    btn.style.background = 'var(--ember-dim)';
+    status.textContent = '';
+  };
+
+  speechSynthesis.speak(utterance);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2059,106 +1685,21 @@ async function saveImportedGame() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// VOICE PREVIEW (settings screen)
-// ═══════════════════════════════════════════════════════════
-const PREVIEW_TEXT = "The fire burned low in the great hall. Outside, the wind moved through the trees like a warning no one had yet learned to read.";
-
-let previewAudio = null;
-
-async function previewNarratorVoice() {
-  const btn   = document.getElementById('preview-voice-btn');
-  const status = document.getElementById('preview-status');
-  const voiceId = document.getElementById('s-voice').value;
-
-  // Stop any playing preview
-  if (previewAudio) {
-    previewAudio.pause();
-    previewAudio = null;
-    btn.textContent = '▶ Preview';
-    btn.style.background = 'var(--ember-dim)';
-    status.textContent = '';
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = '...';
-  status.textContent = 'Loading voice model...';
-
-  // Load Kokoro if needed
-  if (!kokoroReady) {
-    const ok = await loadKokoro((msg) => { status.textContent = msg; });
-    if (!ok) {
-      btn.disabled = false;
-      btn.textContent = '▶ Preview';
-      status.textContent = 'Could not load voice model.';
-      return;
-    }
-  }
-
-  status.textContent = `Generating ${voiceId}...`;
-
-  try {
-    const result = await generateAudio(PREVIEW_TEXT, voiceId);
-    if (!result.ok) {
-      btn.disabled = false;
-      btn.textContent = '▶ Preview';
-      btn.style.background = 'var(--ember-dim)';
-      status.textContent = 'Preview failed — voice may not be available.';
-      return;
-    }
-    const url = URL.createObjectURL(new Blob([result.wav], { type: 'audio/wav' }));
-
-    previewAudio = new Audio(url);
-    btn.disabled = false;
-    btn.textContent = '■ Stop';
-    btn.style.background = 'var(--ember)';
-
-    const voiceName = document.getElementById('s-voice')
-      .options[document.getElementById('s-voice').selectedIndex]
-      .text.split(' — ')[0];
-    status.textContent = `Playing: ${voiceName}`;
-
-    previewAudio.onended = () => {
-      previewAudio = null;
-      URL.revokeObjectURL(url);
-      btn.textContent = '▶ Preview';
-      btn.style.background = 'var(--ember-dim)';
-      status.textContent = `✓ ${voiceName} previewed`;
-    };
-
-    previewAudio.onerror = () => {
-      previewAudio = null;
-      btn.textContent = '▶ Preview';
-      btn.style.background = 'var(--ember-dim)';
-      status.textContent = '';
-    };
-
-    await previewAudio.play();
-
-  } catch(e) {
-    btn.disabled = false;
-    btn.textContent = '▶ Preview';
-    btn.style.background = 'var(--ember-dim)';
-    status.textContent = 'Preview failed — voice may not be available.';
-    console.warn('[Chronicle] Preview error:', e);
-  }
-}
-
-// ═══════════════════════════════════════════════════════════
 // BOOT
 // ═══════════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
-  // Register Service Worker for Kokoro voice file caching
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js')
-      .then(reg => {
-        console.log('[Chronicle] Service Worker registered:', reg.scope);
-      })
-      .catch(err => {
-        console.warn('[Chronicle] Service Worker registration failed:', err);
-        // App still works without SW — just no persistent caching
-      });
+  // Populate voice dropdown once browser voices are ready
+  if (speechSynthesis.onvoiceschanged !== undefined) {
+    speechSynthesis.onvoiceschanged = () => {
+      const { voiceName } = getSettings();
+      populateVoiceDropdown(voiceName);
+    };
   }
+  // Also try immediately (some browsers load voices synchronously)
+  setTimeout(() => {
+    const { voiceName } = getSettings();
+    populateVoiceDropdown(voiceName);
+  }, 100);
 
   const { anthropicKey, githubToken } = getSettings();
   if (!anthropicKey || !githubToken) {

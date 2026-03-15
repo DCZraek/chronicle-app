@@ -959,7 +959,17 @@ async function finalizeInterview(reply, msgs) {
 
     gen.remove();
     showSuccess('Your chronicle is ready.');
-    setTimeout(() => loadGame(gameId), 800);
+    const preloaded = {
+      'meta.json':           { content: meta,                          sha: null },
+      'world-state.txt':     { content: docs.worldState     || '',     sha: null },
+      'character-sheet.txt': { content: docs.characterSheet || '',     sha: null },
+      'npc-dossier.txt':     { content: docs.npcDossier     || '',     sha: null },
+      'quest-log.txt':       { content: docs.questLog       || '',     sha: null },
+      'city-ledger.txt':     { content: docs.cityLedger     || '',     sha: null },
+      'session-summary.txt': { content: docs.sessionSummary || '',     sha: null },
+      'chat-history.json':   { content: '[]',                          sha: null },
+    };
+    setTimeout(() => loadGame(gameId, preloaded), 300);
 
   } catch(e) {
     gen.remove();
@@ -989,8 +999,9 @@ let activeFileShas = {};
 let messageHistory = [];
 let isThinking     = false;
 
-async function loadGame(gameId) {
+async function loadGame(gameId, preloadedDocs = null) {
   showScreen('game');
+  stopAudio();
   activeGameId = gameId;
   activeFileShas = {};
   messageHistory = [];
@@ -998,12 +1009,18 @@ async function loadGame(gameId) {
   setOrb('thinking');
 
   try {
-    const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json'];
-    const loaded = {};
-    await Promise.all(fileNames.map(async f => {
-      const d = await ghRead(`saves/${gameId}/${f}`);
-      if (d) { loaded[f] = d; activeFileShas[f] = d.sha; }
-    }));
+    let loaded = {};
+
+    if (preloadedDocs) {
+      // Use docs passed directly — avoids GitHub propagation delay after fresh write
+      loaded = preloadedDocs;
+    } else {
+      const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json'];
+      await Promise.all(fileNames.map(async f => {
+        const d = await ghRead(`saves/${gameId}/${f}`);
+        if (d) { loaded[f] = d; activeFileShas[f] = d.sha; }
+      }));
+    }
 
     // Set header
     if (loaded['meta.json']) {
@@ -1069,6 +1086,7 @@ async function loadGame(gameId) {
 // EXIT & SAVE
 // ═══════════════════════════════════════════════════════════
 async function exitGame() {
+  stopAudio();
   if (!activeGameId) { showLibrary(); return; }
   setOrb('saving');
   try {
@@ -1675,7 +1693,19 @@ async function saveImportedGame() {
     document.getElementById('import-analyse-btn').style.display = 'none';
 
     showSuccess('Chronicle imported successfully.');
-    setTimeout(() => loadGame(gameId), 800);
+    // Pass docs directly so loadGame doesn't need to re-fetch from GitHub
+    // (GitHub API propagation can take a few seconds after write)
+    const preloaded = {
+      'meta.json':           { content: meta,                                    sha: null },
+      'world-state.txt':     { content: importExtracted.worldState     || '',    sha: null },
+      'character-sheet.txt': { content: importExtracted.characterSheet || '',    sha: null },
+      'npc-dossier.txt':     { content: importExtracted.npcDossier     || '',    sha: null },
+      'quest-log.txt':       { content: importExtracted.questLog       || '',    sha: null },
+      'city-ledger.txt':     { content: importExtracted.cityLedger     || '',    sha: null },
+      'session-summary.txt': { content: importExtracted.sessionSummary || '',    sha: null },
+      'chat-history.json':   { content: '[]',                                    sha: null },
+    };
+    setTimeout(() => loadGame(gameId, preloaded), 300);
 
   } catch(e) {
     btn.disabled = false;

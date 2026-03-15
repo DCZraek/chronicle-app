@@ -1716,45 +1716,59 @@ function formatBytes(b) {
 
 // ── Import system prompts ────────────────────────────────────
 
-// Stage 1: chunk summarizer — condenses a piece of a large document
-const IMPORT_CHUNK_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You are reading a portion of a campaign document. The chunk header will tell you its position in the overall sequence — pay close attention to this so you preserve chronological order.
+// Stage 1: chunk summarizer — preserves everything from a section
+const IMPORT_CHUNK_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You are reading a section of a campaign. Your job is PRESERVATION, not compression. Do not reduce, simplify, or omit anything that could matter for continuing the story.
 
-Write a compact but complete summary covering:
-- Character names, relationships, personalities, and current status AS OF THIS CHUNK
-- Locations visited and their descriptions
-- Events that occurred and their consequences, in the order they happened
-- Decisions made and their outcomes
-- Any quests, goals, or unresolved threads introduced or resolved here
-- Resources, equipment, or notable items gained or lost
-- World details — politics, factions, geography, lore
-- Any agreements, debts, or ongoing tensions established or resolved
+For every NPC encountered, write a full entry:
+- Name, physical description, personality, role in the world
+- Their relationship to the player character — history, attitude, any debts or tensions
+- What happened between them in this section
+- Their status at the end of this section (alive/dead/allied/hostile/unknown)
 
-Important: If a character's status, location, or relationship changes during this chunk, record the FINAL state at the end of the chunk, not the beginning. Mark it clearly as "current state as of this section."
+For every location, record:
+- Name, description, atmosphere
+- What happened there
+- Any significant details (hidden passages, important residents, dangers)
 
-Preserve specific names, places, and details precisely. Do not invent. Do not omit anything consequential. Write in compact prose.`;
+For events and scenes, preserve:
+- What happened in full, including dialogue highlights and specific decisions made
+- Consequences that followed
+- Anything the player established, promised, or committed to
+- Any information the player learned
 
-// Stage 2: final extraction — merges chunk summaries into the GM Bible JSON
-const IMPORT_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You have been given summaries of a previous campaign in chronological order, from earliest to most recent. Synthesize everything into a complete GM Bible that reflects the current state of the world at the END of the campaign.
+For the player character, track:
+- Any changes to abilities, equipment, condition, or resources
+- Relationships that shifted
+- Knowledge gained
+
+The chunk header tells you its position in the overall timeline — note this so the merge stage can sequence events correctly.
+
+Write everything out fully. A thorough record is always better than a brief one. Do not truncate NPC descriptions to save space. Do not summarize battles as "a fight occurred." Preserve the texture and specifics.`;
+
+// Stage 2: final synthesis — builds the full GM Bible from section summaries
+const IMPORT_SYSTEM = `You are a meticulous archivist for a fantasy RPG. You have been given detailed section summaries of a previous campaign in chronological order. Your job is to synthesize them into a complete, richly detailed GM Bible. Do not compress or abbreviate — write everything out fully.
 
 Return a JSON object with these exact keys:
 {
   "gameName": "a short evocative title for this chronicle",
   "characterName": "the player character's name",
-  "worldState": "the current state of the world as of the most recent events — politics, factions, geography, tone, and situation NOW",
-  "characterSheet": "the player character's current state — appearance, abilities, background, equipment, strengths, weaknesses, condition NOW",
-  "npcDossier": "every named NPC — name, relationship to player, personality, and their status/location as of the most recent events",
-  "questLog": "all currently active quests and unresolved threads (completed quests may be briefly noted as background)",
-  "cityLedger": "any city, territory, or organisation the player currently controls — current resources, military, population, finances. Empty string if none.",
-  "sessionSummary": "a vivid narrative of where the story currently stands — atmospheric, present tense, placing the player in the world as it is NOW, ready to continue"
+  "worldState": "a thorough description of the world as it stands NOW — its history, politics, factions and their relationships, key locations and what makes them significant, current tensions and power structures, the tone and feel of the world",
+  "characterSheet": "a complete record of the player character — full name, physical description, background and history, personality, current abilities and skills, all equipment and resources currently held, relationships with factions and individuals, current physical and mental condition, any ongoing obligations or vulnerabilities",
+  "npcDossier": "a full entry for EVERY named NPC encountered — for each one: full name, physical description, personality and mannerisms, their role in the world, full history of their relationship with the player, what happened between them, their current status and location, their attitude toward the player, any debts tensions or unresolved business. Do not summarize groups of NPCs together — each person gets their own entry.",
+  "questLog": "every active quest and unresolved thread with full context — what the quest is, how it began, what has been done so far, what remains, who is involved, what the stakes are. Completed quests should be listed separately with their outcomes recorded.",
+  "cityLedger": "if the player controls any city, territory, army, or organisation: full details of what they control, its current state, resources, military strength, population, finances, key personnel, current problems or opportunities. Empty string if none.",
+  "sessionSummary": "a rich atmospheric narrative of where the story stands NOW — several paragraphs written in present tense placing the player vividly in the current moment, describing the situation they face, the world around them, and the threads that are live. This should read like the opening of the next chapter."
 }
 
-Chronology rules — these are critical:
-- The summaries are ordered from EARLIEST to MOST RECENT
-- When the same detail appears in multiple summaries, ALWAYS use the most recent version
-- If a character dies, they are dead — do not mention them as alive because they appeared in an earlier summary
-- If a quest was completed, mark it complete — do not list it as active because it appeared open in an earlier summary
-- If the player's location changed, use their most recent location
-- The sessionSummary must describe where things stand NOW, not a recap of the whole history
+Chronology rules — critical:
+- Summaries run EARLIEST to MOST RECENT — always use the most recent version of any detail
+- Dead characters stay dead. Completed quests stay completed. Use the player's most recent location.
+- If a relationship changed over time, describe the full arc but make clear where it stands NOW
+
+Length rules — equally critical:
+- npcDossier should be as long as it needs to be. A campaign with many NPCs should have many NPC entries, each written in full.
+- worldState should be thorough enough that a GM reading it cold could run the world convincingly.
+- Do not truncate any field to save space. These documents are the foundation of a continuing story.
 
 Return raw JSON only — no markdown, no backticks, no preamble`;
 
@@ -1838,7 +1852,7 @@ async function analyseImport() {
         const summary = await callClaude(
           [{ role: 'user', content: `[${chunkPosition} — section ${i + 1} of ${totalChunks} in chronological order]\n\n${chunks[i]}\n\nSummarize all meaningful details, noting the current state of characters and events AT THE END of this section.` }],
           IMPORT_CHUNK_SYSTEM,
-          4096
+          8192
         );
         chunkSummaries.push(`=== SECTION ${i + 1} OF ${totalChunks} (${chunkPosition}) ===\n\n${summary}`);
         if (i < totalChunks - 1) await new Promise(r => setTimeout(r, 1500));
@@ -1851,7 +1865,7 @@ async function analyseImport() {
     const reply = await callClaude(
       [{ role: 'user', content: finalInput }],
       IMPORT_SYSTEM,
-      8192
+      16000
     );
 
     analysing.remove();

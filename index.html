@@ -1946,6 +1946,19 @@ async function saveImportedGame() {
       await new Promise(r => setTimeout(r, 200));
     }
 
+    // Build preloaded docs BEFORE resetting importExtracted
+    const preloaded = {
+      'meta.json':           { content: meta,                                          sha: null },
+      'world-state.txt':     { content: importExtracted.worldState     || '',          sha: null },
+      'character-sheet.txt': { content: importExtracted.characterSheet || '',          sha: null },
+      'npc-dossier.txt':     { content: importExtracted.npcDossier     || '',          sha: null },
+      'quest-log.txt':       { content: importExtracted.questLog       || '',          sha: null },
+      'city-ledger.txt':     { content: importExtracted.cityLedger     || '',          sha: null },
+      'session-summary.txt': { content: importExtracted.sessionSummary || '',          sha: null },
+      'chat-history.json':   { content: '[]',                                          sha: null },
+      'chronicle-log.txt':   { content: '',                                            sha: null },
+    };
+
     // Reset import state
     importFiles = [];
     importExtracted = {};
@@ -1953,18 +1966,6 @@ async function saveImportedGame() {
     document.getElementById('import-analyse-btn').style.display = 'none';
 
     showSuccess('Chronicle imported successfully.');
-    // Pass docs directly so loadGame doesn't need to re-fetch from GitHub
-    // (GitHub API propagation can take a few seconds after write)
-    const preloaded = {
-      'meta.json':           { content: meta,                                    sha: null },
-      'world-state.txt':     { content: importExtracted.worldState     || '',    sha: null },
-      'character-sheet.txt': { content: importExtracted.characterSheet || '',    sha: null },
-      'npc-dossier.txt':     { content: importExtracted.npcDossier     || '',    sha: null },
-      'quest-log.txt':       { content: importExtracted.questLog       || '',    sha: null },
-      'city-ledger.txt':     { content: importExtracted.cityLedger     || '',    sha: null },
-      'session-summary.txt': { content: importExtracted.sessionSummary || '',    sha: null },
-      'chat-history.json':   { content: '[]',                                    sha: null },
-    };
     setTimeout(() => loadGame(gameId, preloaded), 300);
 
   } catch(e) {

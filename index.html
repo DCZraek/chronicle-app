@@ -618,10 +618,10 @@ body::before {
 // ═══════════════════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════
-const GITHUB_REPO   = 'DCZraek/chronicle-saves';
-const MODEL         = 'claude-sonnet-4-20250514';
-const MAX_MESSAGES  = 15;
-const ACCENT_COLORS = ['#8a3a2a','#2a5a8a','#3a7a3a','#7a3a7a','#7a6a2a','#2a6a7a','#8a6a3a','#4a3a8a'];
+const GITHUB_REPO      = 'DCZraek/chronicle-saves';
+const MODEL            = 'claude-sonnet-4-20250514';
+const WINDOW_SIZE      = 10;  // raw exchanges kept in memory before considering compression
+const ACCENT_COLORS    = ['#8a3a2a','#2a5a8a','#3a7a3a','#7a3a7a','#7a6a2a','#2a6a7a','#8a6a3a','#4a3a8a'];
 
 const GM_SYSTEM_PROMPT = `You are the Game Master of a living, breathing fantasy world. You are a novelist first and a game master second. Your narration is literary, atmospheric, and immersive — rich with sensory detail, distinct character voices, and emotional weight. You never break the fourth wall. You never present numbered choices or menus. You never reference game mechanics, dice, stats, or systems. Everything the player experiences reads like a chapter in a novel.
 You end every response by describing the scene the player finds themselves in and letting silence hang — waiting for them to act. You never ask "what do you do." You simply leave the world open and alive around them.
@@ -667,6 +667,37 @@ Examples:
 [C:The Wraith|neutral] "You should not have come here."
 
 Use neutral for creatures, spirits, or anything non-human. Every line of spoken dialogue must be tagged. Narration between dialogue must be tagged [N]. Never mix narration and dialogue in the same tag. Keep each tag on its own line.`;
+
+// ── Compression decision prompt ─────────────────────────────
+const COMPRESS_DECISION_PROMPT = `You are monitoring a fantasy RPG session. Based on the most recent GM response, decide whether the current scene is at a natural pause point suitable for compression.
+
+Reply with exactly one word:
+HOLD — if the scene is active, tense, mid-combat, mid-negotiation, mid-debate, mid-chase, or any moment where losing verbatim recent exchanges would break continuity or lose important established details.
+COMPRESS — if the scene has reached a natural pause, transition, location change, rest, or resolution where recent events can be safely summarized.
+
+One word only. No punctuation. No explanation.`;
+
+// ── Mechanical summary prompt (for Claude's context) ─────────
+const MECHANICAL_SUMMARY_PROMPT = `You are a meticulous chronicler for a fantasy RPG. Summarize the following session exchanges into a compact factual record.
+
+Rules:
+- Write in tight present-tense bullet-point style
+- Include: location, character condition, key decisions made, consequences that occurred, important information established, resources gained or lost, NPC interactions and their outcomes, any commitments or agreements made
+- If a debate or negotiation occurred, preserve the specific points argued and any concessions or conclusions reached — these must not be lost
+- If combat occurred, record the outcome and any wounds, deaths, or tactical consequences
+- Be as brief as the content allows — one line for a simple scene transition, multiple lines for complex events
+- Never pad. Never omit anything consequential.`;
+
+// ── Literary log prompt (for the human-readable chronicle) ───
+const LITERARY_LOG_PROMPT = `You are writing the chronicle of a fantasy RPG campaign. Summarize the following session exchanges as a journal entry written in the style of a fantasy novel.
+
+Rules:
+- Write in past tense, third person, literary prose
+- Capture the atmosphere, tension, and emotional weight of events
+- Preserve the outcomes of any debates, negotiations, or confrontations with enough detail that they could be referenced later
+- Write as much as the events require — a quiet scene may be a sentence, a pivotal moment may be several paragraphs
+- Do not address the player directly. Write as if recording history.
+- Begin with a timestamp placeholder: [SESSION_ENTRY]`;
 
 const INTERVIEW_SYSTEM = `You are setting up a new fantasy RPG campaign. Interview the player to understand their desired world and character, then generate complete GM Bible documents.
 
@@ -994,10 +1025,11 @@ function handleInterviewKey(e) {
 // ═══════════════════════════════════════════════════════════
 // LOAD GAME
 // ═══════════════════════════════════════════════════════════
-let activeGameId   = null;
-let activeFileShas = {};
-let messageHistory = [];
-let isThinking     = false;
+let activeGameId      = null;
+let activeFileShas    = {};
+let messageHistory    = [];   // sliding window — raw recent exchanges only
+let compressionLog    = [];   // mechanical summaries for Claude context
+let isThinking        = false;
 
 async function loadGame(gameId, preloadedDocs = null) {
   showScreen('game');
@@ -1015,7 +1047,7 @@ async function loadGame(gameId, preloadedDocs = null) {
       // Use docs passed directly — avoids GitHub propagation delay after fresh write
       loaded = preloadedDocs;
     } else {
-      const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json'];
+      const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json','chronicle-log.txt'];
       await Promise.all(fileNames.map(async f => {
         const d = await ghRead(`saves/${gameId}/${f}`);
         if (d) { loaded[f] = d; activeFileShas[f] = d.sha; }
@@ -1031,11 +1063,15 @@ async function loadGame(gameId, preloadedDocs = null) {
       } catch(e) {}
     }
 
-    // Restore history or seed with world context
+    // Restore compression log and recent history
+    compressionLog = [];
     if (loaded['chat-history.json']) {
       try {
-        const h = JSON.parse(loaded['chat-history.json'].content);
-        if (Array.isArray(h) && h.length > 0) messageHistory = h;
+        const saved = JSON.parse(loaded['chat-history.json'].content);
+        if (Array.isArray(saved) && saved.length > 0) {
+          // chat-history.json now stores only compression summaries
+          compressionLog = saved;
+        }
       } catch(e) {}
     }
 
@@ -1058,8 +1094,9 @@ async function loadGame(gameId, preloadedDocs = null) {
 
     // Render narration
     document.getElementById('narration').innerHTML = '';
+    // Show recent raw exchanges only (not the world seed messages)
     const visibleMessages = messageHistory.filter(m =>
-      !(m.role === 'user' && (m.content.startsWith('[WORLD STATE]') || m.content.startsWith('[CHRONICLE SUMMARY') || m.content.startsWith('[The player'))) &&
+      !(m.role === 'user' && (m.content.startsWith('[WORLD STATE]') || m.content.startsWith('[The player'))) &&
       !(m.role === 'assistant' && m.content.startsWith('[World state'))
     );
 
@@ -1101,8 +1138,10 @@ async function exitGame() {
 
 async function saveToGitHub() {
   if (!activeGameId) return;
-  const histJson = JSON.stringify(messageHistory, null, 2);
-  const r = await ghWrite(`saves/${activeGameId}/chat-history.json`, histJson, activeFileShas['chat-history.json'] || null);
+
+  // Save compression log (mechanical summaries only — not raw exchanges)
+  const logJson = JSON.stringify(compressionLog, null, 2);
+  const r = await ghWrite(`saves/${activeGameId}/chat-history.json`, logJson, activeFileShas['chat-history.json'] || null);
   if (r?.content?.sha) activeFileShas['chat-history.json'] = r.content.sha;
 
   try {
@@ -1129,7 +1168,9 @@ async function sendMessage() {
   setThinking(true);
   const typing = appendTyping();
   try {
-    const reply = await callClaude(messageHistory, GM_SYSTEM_PROMPT, 1024);
+    // Build context: world seed + compression log + recent window
+    const context = buildContext();
+    const reply = await callClaude(context, GM_SYSTEM_PROMPT, 1024);
     typing.remove();
     appendMessage('gm', reply);
     messageHistory.push({ role: 'assistant', content: reply });
@@ -1137,21 +1178,75 @@ async function sendMessage() {
     speakText(reply);
 
     // Auto-save every 5 player messages
-    const playerCount = messageHistory.filter(m => m.role === 'user' && !m.content.startsWith('[WORLD STATE]') && !m.content.startsWith('[CHRONICLE') && !m.content.startsWith('[The player')).length;
+    const playerCount = messageHistory.filter(m =>
+      m.role === 'user' &&
+      !m.content.startsWith('[WORLD STATE]') &&
+      !m.content.startsWith('[The player')
+    ).length;
     if (playerCount % 5 === 0) saveToGitHub().catch(() => {});
 
-    // Compress if needed
-    const nonSystemMessages = messageHistory.filter(m =>
-      !(m.role === 'user' && (m.content.startsWith('[WORLD STATE]') || m.content.startsWith('[The player'))) &&
-      !(m.role === 'assistant' && m.content.startsWith('[World state'))
-    );
-    if (nonSystemMessages.length >= MAX_MESSAGES * 2) await compressHistory();
+    // Ask Claude if now is a good time to compress (runs silently in background)
+    considerCompression(reply).catch(() => {});
 
   } catch(e) {
     typing.remove();
     showError(e.message || 'Something went wrong.');
   } finally {
     setThinking(false);
+  }
+}
+
+// Build the message array sent to Claude on each turn
+function buildContext() {
+  // World seed is always the first two messages
+  const seed = messageHistory.slice(0, 2);
+
+  // Compression log as a single context block (if any summaries exist)
+  const logBlock = compressionLog.length > 0 ? [
+    {
+      role: 'user',
+      content: '[CHRONICLE LOG — summary of prior events]
+
+' +
+        compressionLog.map(e => e.mechanical).join('
+
+---
+
+')
+    },
+    { role: 'assistant', content: '[Chronicle acknowledged.]' }
+  ] : [];
+
+  // Recent raw exchanges (everything after the seed, up to WINDOW_SIZE pairs)
+  const rawExchanges = messageHistory.slice(2);
+  const window = rawExchanges.slice(-WINDOW_SIZE * 2);
+
+  return [...seed, ...logBlock, ...window];
+}
+
+// Silently ask Claude if compression should happen now
+async function considerCompression(lastGmReply) {
+  // Only consider if we have enough raw exchanges to be worth compressing
+  const rawExchanges = messageHistory.slice(2);
+  if (rawExchanges.length < WINDOW_SIZE * 2) return;
+
+  try {
+    const decision = await callClaude(
+      [{ role: 'user', content: `Latest GM response:
+
+${lastGmReply}
+
+HOLD or COMPRESS?` }],
+      COMPRESS_DECISION_PROMPT,
+      5
+    );
+
+    if (decision.trim().toUpperCase().startsWith('COMPRESS')) {
+      await compressHistory();
+    }
+  } catch(e) {
+    // Compression is best-effort — never block gameplay
+    console.warn('[Chronicle] Compression check failed:', e.message);
   }
 }
 
@@ -1180,28 +1275,63 @@ async function callClaude(messages, system, maxTokens = 1024) {
 // ═══════════════════════════════════════════════════════════
 // MEMORY COMPRESSION
 // ═══════════════════════════════════════════════════════════
-async function compressHistory() {
-  const systemMessages = messageHistory.slice(0, 2);
-  const recent = messageHistory.slice(-12);
-  const histText = recent.map(m => `${m.role === 'user' ? 'PLAYER' : 'GM'}: ${m.content}`).join('\n\n');
 
-  const summarySystem = `You are a meticulous chronicler. Summarize the following RPG session in compact present-tense format covering: character condition/inventory, current location, active situation/threats, key NPCs and their status, recent decisions and consequences, world changes, tracked resources. Be precise and complete.`;
+
+
+
+// ═══════════════════════════════════════════════════════════
+// CONTEXT-AWARE COMPRESSION
+// ═══════════════════════════════════════════════════════════
+async function compressHistory() {
+  const rawExchanges = messageHistory.slice(2);
+  if (rawExchanges.length === 0) return;
+
+  const histText = rawExchanges
+    .map(m => `${m.role === 'user' ? 'PLAYER' : 'GM'}: ${m.content}`)
+    .join('\n\n');
+
+  const prompt = `Exchanges to summarize:\n\n${histText}`;
 
   try {
-    const summary = await callClaude(
-      [{ role: 'user', content: `Session:\n\n${histText}\n\nProvide chronicle summary.` }],
-      summarySystem, 1024
-    );
-    messageHistory = [
-      ...systemMessages,
-      { role: 'user',      content: `[CHRONICLE SUMMARY — prior events]\n\n${summary}\n\n[Story continues from here]` },
-      { role: 'assistant', content: 'The chronicle is held. I remember.' },
-    ];
+    // Run both summaries in parallel
+    const [mechanical, literary] = await Promise.all([
+      callClaude([{ role: 'user', content: prompt }], MECHANICAL_SUMMARY_PROMPT, 1024),
+      callClaude([{ role: 'user', content: prompt }], LITERARY_LOG_PROMPT, 1024),
+    ]);
+
+    const entry = {
+      timestamp: new Date().toISOString(),
+      mechanical: mechanical.trim(),
+      literary:   literary.trim(),
+    };
+    compressionLog.push(entry);
+
+    // Clear raw exchanges from memory — world seed stays
+    messageHistory = messageHistory.slice(0, 2);
+
     updateCounter();
     saveToGitHub().catch(() => {});
+    appendToChronicleLog(entry.literary).catch(() => {});
+
+    console.log('[Chronicle] Compression complete.');
   } catch(e) {
-    messageHistory = [...messageHistory.slice(0, 2), ...messageHistory.slice(-10)];
+    console.warn('[Chronicle] Compression failed:', e.message);
+    // Fallback — trim oldest without summarizing
+    const raw = messageHistory.slice(2);
+    messageHistory = [...messageHistory.slice(0, 2), ...raw.slice(-WINDOW_SIZE * 2)];
   }
+}
+
+async function appendToChronicleLog(literaryEntry) {
+  const existing = await ghRead(`saves/${activeGameId}/chronicle-log.txt`).catch(() => null);
+  const existingText = existing?.content || '';
+  const sha = existing?.sha || null;
+  const timestamp = new Date().toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+  const newEntry = `\n\n── ${timestamp} ──\n\n${literaryEntry}`;
+  await ghWrite(`saves/${activeGameId}/chronicle-log.txt`, existingText + newEntry, sha);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1473,14 +1603,13 @@ function setOrb(state) {
   if (o) o.className = 'status-orb ' + state;
 }
 function updateCounter() {
-  const count = messageHistory.filter(m =>
+  const rawCount = messageHistory.filter(m =>
     m.role === 'user' &&
     !m.content.startsWith('[WORLD STATE]') &&
-    !m.content.startsWith('[CHRONICLE') &&
     !m.content.startsWith('[The player')
   ).length;
   const el = document.getElementById('msg-counter');
-  if (el) el.textContent = `${count} / ${MAX_MESSAGES}`;
+  if (el) el.textContent = `${rawCount} exchanges · ${compressionLog.length} summaries`;
 }
 function showError(msg) {
   const t = document.getElementById('error-toast');

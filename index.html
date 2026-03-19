@@ -117,19 +117,28 @@ body::before {
 
 /* SETTINGS SCREEN */
 #screen-settings .scrollable {
-  display: flex; flex-direction: column; gap: 20px;
-  max-width: 520px; margin: 0 auto; padding: 32px 24px;
+  display: flex; flex-direction: column;
+  max-width: 560px; margin: 0 auto; padding: 0 24px 40px;
 }
-.settings-intro { text-align: center; padding: 8px 0 16px; }
-.settings-intro .rune {
-  font-family: 'Cinzel', serif; font-size: 2.2rem;
-  color: var(--gold-dim); display: block; margin-bottom: 10px;
+/* Tab bar */
+.settings-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid rgba(184,146,42,0.18);
+  margin-bottom: 28px; position: sticky; top: 0;
+  background: var(--ink); z-index: 1; padding-top: 20px;
 }
-.settings-intro h2 {
-  font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 400;
-  letter-spacing: 0.14em; color: var(--gold); text-transform: uppercase; margin-bottom: 8px;
+.settings-tab {
+  font-family: 'Cinzel', serif; font-size: 0.62rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ash); cursor: pointer;
+  padding: 10px 18px; border: none; background: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color 0.2s, border-color 0.2s;
 }
-.settings-intro p { font-size: 0.88rem; color: var(--ash); font-style: italic; line-height: 1.7; }
+.settings-tab:hover { color: var(--gold-dim); }
+.settings-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+/* Tab panels */
+.settings-panel { display: none; flex-direction: column; gap: 20px; }
+.settings-panel.active { display: flex; }
+/* Sections */
 .settings-section {
   border: 1px solid rgba(184,146,42,0.12); border-radius: 4px;
   padding: 20px; display: flex; flex-direction: column; gap: 14px;
@@ -140,6 +149,24 @@ body::before {
   border-bottom: 1px solid rgba(184,146,42,0.12); padding-bottom: 10px;
 }
 .settings-hint { font-size: 0.78rem; color: var(--ash); font-style: italic; line-height: 1.6; }
+/* Inert / coming-soon controls */
+.settings-inert { opacity: 0.38; pointer-events: none; }
+.settings-coming-soon {
+  font-size: 0.7rem; color: var(--ash); font-style: italic;
+  letter-spacing: 0.06em; margin-top: 2px;
+}
+/* Provider key field visibility */
+#s-api-key-row { transition: opacity 0.2s; }
+/* Slider row */
+.settings-slider-row {
+  display: flex; align-items: center; gap: 12px;
+}
+.settings-slider-row input[type=range] {
+  flex: 1; accent-color: var(--gold);
+}
+.settings-slider-val {
+  font-size: 0.78rem; color: var(--ash); width: 36px; text-align: right;
+}
 
 /* LIBRARY SCREEN */
 #screen-library .scrollable { padding: 20px 20px 100px; }
@@ -404,57 +431,159 @@ body::before {
   <div class="top-bar">
     <div>
       <div class="top-bar-title">The Chronicle</div>
-      <div class="top-bar-sub" id="settings-subtitle">First Time Setup</div>
+      <div class="top-bar-sub" id="settings-subtitle">Settings</div>
     </div>
   </div>
   <div class="scrollable">
-    <div class="settings-intro">
-      <span class="rune">✦</span>
-      <h2>Welcome, Chronicler</h2>
-      <p>Enter your API keys below. They are stored only in this browser and never leave your device.</p>
+
+    <!-- Tab bar -->
+    <div class="settings-tabs">
+      <button class="settings-tab active" onclick="switchSettingsTab('narrator')">Narrator</button>
+      <button class="settings-tab" onclick="switchSettingsTab('audio')">Audio</button>
+      <button class="settings-tab" onclick="switchSettingsTab('display')">Display</button>
+      <button class="settings-tab" onclick="switchSettingsTab('advanced')">Advanced</button>
     </div>
-    <div class="settings-section">
-      <div class="settings-section-title">Anthropic — Story Intelligence</div>
-      <div>
-        <label class="field-label">API Key</label>
-        <input class="field-input" type="password" id="s-anthropic" placeholder="sk-ant-..." autocomplete="off" />
-      </div>
-      <div class="settings-hint">Get this from console.anthropic.com → API Keys</div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-section-title">Voice Narration — Browser TTS</div>
-      <div>
-        <label class="field-label">Narrator Voice</label>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <select class="field-input" id="s-voice" style="cursor:pointer;flex:1;">
-            <option value="">Loading voices...</option>
+
+    <!-- ── NARRATOR TAB (fully wired) ───────────────────── -->
+    <div class="settings-panel active" id="settings-panel-narrator">
+
+      <div class="settings-section">
+        <div class="settings-section-title">Narrator AI</div>
+        <div>
+          <label class="field-label">Provider</label>
+          <select class="field-input" id="s-provider" onchange="onProviderChange()" style="cursor:pointer;">
+            <option value="ollama">Local — Ollama (phi3:mini)</option>
+            <option value="anthropic">Anthropic — Claude</option>
+            <option value="openai">OpenAI — GPT</option>
+            <option value="custom">Custom Endpoint</option>
           </select>
-          <button id="preview-voice-btn" onclick="previewNarratorVoice()" style="
-            background:var(--ember-dim);border:1px solid var(--ember);
-            border-radius:3px;color:var(--parchment);
-            font-family:'Cinzel',serif;font-size:0.68rem;
-            letter-spacing:0.1em;text-transform:uppercase;
-            padding:0 14px;height:46px;cursor:pointer;
-            white-space:nowrap;flex-shrink:0;transition:background 0.2s;">
-            ▶ Preview
-          </button>
         </div>
-        <div id="preview-status" style="font-size:0.75rem;color:var(--ash);font-style:italic;margin-top:6px;min-height:16px;"></div>
+        <div>
+          <label class="field-label">Model</label>
+          <input class="field-input" type="text" id="s-model" placeholder="e.g. phi3:mini" autocomplete="off" />
+        </div>
+        <div id="s-api-key-row">
+          <label class="field-label">API Key</label>
+          <input class="field-input" type="password" id="s-anthropic" placeholder="sk-ant-... or sk-..." autocomplete="off" />
+          <div class="settings-hint" id="s-api-key-hint">Stored locally on your device. Never transmitted except to the provider.</div>
+        </div>
+        <div id="s-endpoint-row" style="display:none;">
+          <label class="field-label">Endpoint URL</label>
+          <input class="field-input" type="text" id="s-endpoint" placeholder="http://localhost:11434/api/chat" autocomplete="off" />
+        </div>
+        <div class="settings-hint" id="s-provider-hint">Running locally via Ollama. No API key required.</div>
       </div>
-      <div class="settings-hint">Uses your browser's built-in voice engine. No download needed — works instantly.</div>
-    </div>
-    <div class="settings-section">
-      <div class="settings-section-title">GitHub — Save File Sync</div>
-      <div>
-        <label class="field-label">Personal Access Token</label>
-        <input class="field-input" type="password" id="s-github" placeholder="ghp_..." autocomplete="off" />
+
+      <div class="settings-section">
+        <div class="settings-section-title">Voice Narration</div>
+        <div>
+          <label class="field-label">Narrator Voice</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select class="field-input" id="s-voice" style="cursor:pointer;flex:1;">
+              <option value="">Loading voices...</option>
+            </select>
+            <button id="preview-voice-btn" onclick="previewNarratorVoice()" style="
+              background:var(--ember-dim);border:1px solid var(--ember);
+              border-radius:3px;color:var(--parchment);
+              font-family:'Cinzel',serif;font-size:0.68rem;
+              letter-spacing:0.1em;text-transform:uppercase;
+              padding:0 14px;height:46px;cursor:pointer;
+              white-space:nowrap;flex-shrink:0;transition:background 0.2s;">
+              ▶ Preview
+            </button>
+          </div>
+          <div id="preview-status" style="font-size:0.75rem;color:var(--ash);font-style:italic;margin-top:6px;min-height:16px;"></div>
+        </div>
+        <div class="settings-hint">Uses your device's built-in voice engine.</div>
       </div>
-      <div class="settings-hint">Your saves live at github.com/DCZraek/chronicle-saves — token needs repo scope.</div>
-    </div>
-    <button class="primary-btn" onclick="saveSettings()">Save & Enter the Chronicle</button>
-    <div id="settings-back" style="display:none; text-align:center; margin-top:4px;">
-      <button class="ghost-btn" onclick="showLibrary()">← Back to Library</button>
-    </div>
+
+      <button class="primary-btn" onclick="saveSettings()">Save Settings</button>
+      <div id="settings-back" style="display:none; text-align:center; margin-top:4px;">
+        <button class="ghost-btn" onclick="showLibrary()">← Back to Library</button>
+      </div>
+
+    </div><!-- /narrator panel -->
+
+    <!-- ── AUDIO TAB (scaffolded) ────────────────────────── -->
+    <div class="settings-panel" id="settings-panel-audio">
+      <div class="settings-section settings-inert">
+        <div class="settings-section-title">Volume</div>
+        <div>
+          <label class="field-label">Narrator Volume</label>
+          <div class="settings-slider-row">
+            <input type="range" min="0" max="100" value="80" disabled />
+            <span class="settings-slider-val">80%</span>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">Ambient Volume</label>
+          <div class="settings-slider-row">
+            <input type="range" min="0" max="100" value="40" disabled />
+            <span class="settings-slider-val">40%</span>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">UI Sounds</label>
+          <div class="settings-slider-row">
+            <input type="range" min="0" max="100" value="60" disabled />
+            <span class="settings-slider-val">60%</span>
+          </div>
+        </div>
+      </div>
+      <div class="settings-coming-soon" style="text-align:center;">Audio controls coming in a future update.</div>
+    </div><!-- /audio panel -->
+
+    <!-- ── DISPLAY TAB (scaffolded) ──────────────────────── -->
+    <div class="settings-panel" id="settings-panel-display">
+      <div class="settings-section settings-inert">
+        <div class="settings-section-title">Appearance</div>
+        <div>
+          <label class="field-label">Theme</label>
+          <select class="field-input" disabled style="cursor:not-allowed;">
+            <option>Dark (Default)</option>
+            <option>Light</option>
+            <option>Sepia</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Brightness</label>
+          <div class="settings-slider-row">
+            <input type="range" min="0" max="100" value="100" disabled />
+            <span class="settings-slider-val">100%</span>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">Font Size</label>
+          <select class="field-input" disabled style="cursor:not-allowed;">
+            <option>Normal</option>
+            <option>Large</option>
+            <option>Extra Large</option>
+          </select>
+        </div>
+      </div>
+      <div class="settings-coming-soon" style="text-align:center;">Display options coming in a future update.</div>
+    </div><!-- /display panel -->
+
+    <!-- ── ADVANCED TAB (scaffolded) ─────────────────────── -->
+    <div class="settings-panel" id="settings-panel-advanced">
+      <div class="settings-section settings-inert">
+        <div class="settings-section-title">GitHub Sync (Optional)</div>
+        <div>
+          <label class="field-label">Personal Access Token</label>
+          <input class="field-input" type="password" id="s-github" placeholder="ghp_..." autocomplete="off" disabled />
+        </div>
+        <div class="settings-hint">Sync saves to a private GitHub repository as a backup.</div>
+      </div>
+      <div class="settings-section settings-inert">
+        <div class="settings-section-title">Data</div>
+        <div style="display:flex;gap:10px;">
+          <button class="ghost-btn" style="flex:1;opacity:0.4;cursor:not-allowed;" disabled>Export All Saves</button>
+          <button class="ghost-btn" style="flex:1;opacity:0.4;cursor:not-allowed;" disabled>Import Saves</button>
+        </div>
+      </div>
+      <div class="settings-coming-soon" style="text-align:center;">Advanced options coming in a future update.</div>
+    </div><!-- /advanced panel -->
+
   </div>
 </div>
 
@@ -467,7 +596,7 @@ body::before {
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
       <button class="icon-btn" onclick="showScreen('import')">↑ Import</button>
-      <button class="icon-btn" onclick="openSettingsFromLibrary()">⚙ Keys</button>
+      <button class="icon-btn" onclick="openSettingsFromLibrary()">⚙ Settings</button>
     </div>
   </div>
 
@@ -621,10 +750,9 @@ body::before {
 // ═══════════════════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════
-const GITHUB_REPO      = 'DCZraek/chronicle-saves';
-const MODEL            = 'claude-sonnet-4-20250514';
 const WINDOW_SIZE      = 10;  // raw exchanges kept in memory before considering compression
 const ACCENT_COLORS    = ['#8a3a2a','#2a5a8a','#3a7a3a','#7a3a7a','#7a6a2a','#2a6a7a','#8a6a3a','#4a3a8a'];
+const IS_ELECTRON      = typeof window.chronicle !== 'undefined';
 
 const GM_SYSTEM_PROMPT = `You are the Game Master of a living, breathing fantasy world. You are a novelist first and a game master second. Your narration is literary, atmospheric, and immersive — rich with sensory detail, distinct character voices, and emotional weight. You never break the fourth wall. You never present numbered choices or menus. You never reference game mechanics, dice, stats, or systems. Everything the player experiences reads like a chapter in a novel.
 You end every response by describing the scene the player finds themselves in and letting silence hang — waiting for them to act. You never ask "what do you do." You simply leave the world open and alive around them.
@@ -722,36 +850,125 @@ Then immediately output a valid JSON object — no markdown, no backticks, just 
 Make each value a rich detailed document. worldState: world overview, politics, where the character begins. characterSheet: appearance, abilities, background, equipment, strengths, weaknesses. npcDossier: 2-3 people the character knows. questLog: the opening situation. cityLedger: empty string if they command nothing, otherwise their holdings. sessionSummary: an atmospheric opening paragraph for the first session.`;
 
 // ═══════════════════════════════════════════════════════════
+// NARRATOR PROVIDERS
+// ═══════════════════════════════════════════════════════════
+const NARRATOR_PROVIDERS = {
+  ollama: {
+    label:       'Local — Ollama',
+    endpoint:    'http://localhost:11434/api/chat',
+    defaultModel:'phi3:mini',
+    requiresKey: false,
+    hint:        'Running locally via Ollama. No API key required.',
+  },
+  anthropic: {
+    label:       'Anthropic — Claude',
+    endpoint:    'https://api.anthropic.com/v1/messages',
+    defaultModel:'claude-sonnet-4-20250514',
+    requiresKey: true,
+    hint:        'Get your key from console.anthropic.com → API Keys.',
+  },
+  openai: {
+    label:       'OpenAI — GPT',
+    endpoint:    'https://api.openai.com/v1/chat/completions',
+    defaultModel:'gpt-4o',
+    requiresKey: true,
+    hint:        'Get your key from platform.openai.com → API Keys.',
+  },
+  custom: {
+    label:       'Custom Endpoint',
+    endpoint:    '',
+    defaultModel:'',
+    requiresKey: true,
+    hint:        'Enter any OpenAI-compatible endpoint, model, and API key. Leave key blank if not required.',
+  },
+};
+
+function getActiveProvider() {
+  const id = localStorage.getItem('ch_provider') || 'ollama';
+  return { id, ...NARRATOR_PROVIDERS[id] };
+}
+
+function onProviderChange() {
+  const id    = document.getElementById('s-provider').value;
+  const cfg   = NARRATOR_PROVIDERS[id];
+  const model = document.getElementById('s-model');
+  const keyRow = document.getElementById('s-api-key-row');
+  const endpointRow = document.getElementById('s-endpoint-row');
+  const hint  = document.getElementById('s-provider-hint');
+
+  // Auto-fill model if field is empty or was a default
+  const isDefault = Object.values(NARRATOR_PROVIDERS).some(p => p.defaultModel === model.value);
+  if (!model.value || isDefault) model.value = cfg.defaultModel;
+
+  keyRow.style.display      = cfg.requiresKey ? '' : 'none';
+  endpointRow.style.display = id === 'custom' ? '' : 'none';
+  hint.textContent          = cfg.hint;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SETTINGS TAB NAVIGATION
+// ═══════════════════════════════════════════════════════════
+function switchSettingsTab(name) {
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`[onclick="switchSettingsTab('${name}')"]`).classList.add('active');
+  document.getElementById(`settings-panel-${name}`).classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════
 // SETTINGS
 // ═══════════════════════════════════════════════════════════
 function getSettings() {
   return {
+    provider:     localStorage.getItem('ch_provider')  || 'ollama',
+    model:        localStorage.getItem('ch_model')     || NARRATOR_PROVIDERS.ollama.defaultModel,
     anthropicKey: localStorage.getItem('ch_anthropic') || '',
+    endpoint:     localStorage.getItem('ch_endpoint')  || '',
     voiceName:    localStorage.getItem('ch_voice')     || '',
     githubToken:  localStorage.getItem('ch_github')    || '',
   };
 }
 
 function saveSettings() {
-  const anthropic = document.getElementById('s-anthropic').value.trim();
-  const voice     = document.getElementById('s-voice').value;
-  const github    = document.getElementById('s-github').value.trim();
-  if (!anthropic) { showError('Anthropic key is required.'); return; }
-  if (!github)    { showError('GitHub token is required.'); return; }
-  localStorage.setItem('ch_anthropic', anthropic);
+  const provider = document.getElementById('s-provider').value;
+  const model    = document.getElementById('s-model').value.trim();
+  const apiKey   = document.getElementById('s-anthropic').value.trim();
+  const endpoint = document.getElementById('s-endpoint') ? document.getElementById('s-endpoint').value.trim() : '';
+  const voice    = document.getElementById('s-voice').value;
+  const cfg      = NARRATOR_PROVIDERS[provider];
+
+  if (cfg.requiresKey && provider !== 'custom' && !apiKey) {
+    showError(`API key is required for ${cfg.label}.`); return;
+  }
+  if (provider === 'custom' && !endpoint) {
+    showError('Custom endpoint URL is required.'); return;
+  }
+  if (!model) { showError('Model name is required.'); return; }
+
+  localStorage.setItem('ch_provider',  provider);
+  localStorage.setItem('ch_model',     model);
+  localStorage.setItem('ch_anthropic', apiKey);
+  localStorage.setItem('ch_endpoint',  endpoint);
   localStorage.setItem('ch_voice',     voice || '');
-  localStorage.setItem('ch_github',    github);
+
   showSuccess('Settings saved.');
-  setTimeout(() => showLibrary(), 600);
+  const isFirstTime = !document.getElementById('settings-back').style.display || 
+                       document.getElementById('settings-back').style.display === 'none';
+  if (isFirstTime) setTimeout(() => showLibrary(), 600);
 }
 
 function openSettingsFromLibrary() {
   const s = getSettings();
+  const providerEl = document.getElementById('s-provider');
+  providerEl.value = s.provider;
+  document.getElementById('s-model').value     = s.model;
   document.getElementById('s-anthropic').value = s.anthropicKey;
+  if (document.getElementById('s-endpoint')) document.getElementById('s-endpoint').value = s.endpoint;
   populateVoiceDropdown(s.voiceName);
-  document.getElementById('s-github').value    = s.githubToken;
-  document.getElementById('settings-subtitle').textContent = 'Update Keys';
+  onProviderChange(); // sync visibility
+  document.getElementById('settings-subtitle').textContent = 'Settings';
   document.getElementById('settings-back').style.display = 'block';
+  switchSettingsTab('narrator');
   showScreen('settings');
 }
 
@@ -805,47 +1022,59 @@ async function ghList(path) {
 // ═══════════════════════════════════════════════════════════
 // LIBRARY
 // ═══════════════════════════════════════════════════════════
+// GitHub fallback — list games from github saves repo
+async function ghListGames() {
+  const items = await ghList('saves');
+  const games = items.filter(i => i.type === 'dir');
+  const result = [];
+  for (const g of games) {
+    try {
+      const meta = await ghRead(`saves/${g.name}/meta.json`);
+      if (meta) {
+        const m = JSON.parse(meta.content);
+        result.push({ id: g.name, name: m.name || g.name, character: m.character || '', last_played: m.lastPlayed || '' });
+      }
+    } catch(e) {
+      result.push({ id: g.name, name: g.name, character: '', last_played: '' });
+    }
+  }
+  return result;
+}
+
 async function showLibrary() {
   showScreen('library');
   const grid = document.getElementById('library-grid');
   grid.innerHTML = '<div class="library-loading">Retrieving your chronicles...</div>';
 
   try {
-    const items = await ghList('saves');
-    const games = items.filter(i => i.type === 'dir');
+    const games = IS_ELECTRON
+      ? await window.chronicle.listGames()
+      : await ghListGames();
+
     grid.innerHTML = '';
 
-    for (let i = 0; i < games.length; i++) {
-      let name = games[i].name, character = '', lastPlayed = '';
-      try {
-        const meta = await ghRead(`saves/${games[i].name}/meta.json`);
-        if (meta) {
-          const m = JSON.parse(meta.content);
-          name = m.name || games[i].name;
-          character = m.character || '';
-          lastPlayed = m.lastPlayed ? `Last played ${m.lastPlayed}` : '';
-        }
-      } catch(e) {}
+    games.forEach((game, i) => {
       const color = ACCENT_COLORS[i % ACCENT_COLORS.length];
+      const lastPlayed = game.last_played || game.lastPlayed || '';
+      const character  = game.character || '';
       const card = document.createElement('div');
       card.className = 'game-card';
       card.innerHTML = `
         <div class="game-card-accent" style="background:${color}"></div>
         <div class="game-card-body" style="cursor:pointer">
-          <div class="game-card-name">${escHtml(name)}</div>
-          <div class="game-card-meta">${escHtml(character)}${character && lastPlayed ? ' · ' : ''}${escHtml(lastPlayed)}</div>
+          <div class="game-card-name">${escHtml(game.name)}</div>
+          <div class="game-card-meta">${escHtml(character)}${character && lastPlayed ? ' · ' : ''}${lastPlayed ? 'Last played ' + escHtml(lastPlayed) : ''}</div>
         </div>
         <button class="card-delete-btn" title="Delete game">✕</button>
         <div class="game-card-arrow" style="cursor:pointer">›</div>`;
-      // Click body or arrow to load, click X to delete
-      card.querySelector('.game-card-body').onclick = () => loadGame(games[i].name);
-      card.querySelector('.game-card-arrow').onclick = () => loadGame(games[i].name);
+      card.querySelector('.game-card-body').onclick = () => loadGame(game.id);
+      card.querySelector('.game-card-arrow').onclick = () => loadGame(game.id);
       card.querySelector('.card-delete-btn').onclick = (e) => {
         e.stopPropagation();
-        confirmDeleteGame(games[i].name, name, card);
+        confirmDeleteGame(game.id, game.name, card);
       };
       grid.appendChild(card);
-    }
+    });
 
     const newCard = document.createElement('div');
     newCard.className = 'new-game-card';
@@ -854,13 +1083,12 @@ async function showLibrary() {
     grid.appendChild(newCard);
 
   } catch(e) {
-    grid.innerHTML = `<div class="library-loading">Could not reach GitHub. Check your token in ⚙ Keys.<br><br><small style="opacity:0.6">${escHtml(e.message)}</small></div>`;
+    grid.innerHTML = `<div class="library-loading">Could not load chronicles.<br><br><small style="opacity:0.6">${escHtml(e.message)}</small></div>`;
   }
 }
 
 // ── Delete game ─────────────────────────────────────────────
 function confirmDeleteGame(gameId, gameName, cardEl) {
-  // Replace card content with inline confirm
   cardEl.innerHTML = `
     <div style="flex:1; font-family:'Cinzel',serif; font-size:0.8rem; letter-spacing:0.08em; color:var(--parchment);">
       Delete "${escHtml(gameName)}"?
@@ -875,15 +1103,18 @@ function confirmDeleteGame(gameId, gameName, cardEl) {
 async function deleteGame(gameId, cardEl) {
   cardEl.innerHTML = `<div style="flex:1;font-style:italic;color:var(--ash);font-size:0.85rem;padding:4px 0;">Deleting...</div>`;
   try {
-    // List all files in the game folder and delete each one
-    const files = await ghList(`saves/${gameId}`);
-    for (const f of files) {
-      if (f.type === 'file') {
-        await ghRequest('DELETE', `saves/${gameId}/${f.name}`, {
-          message: `Chronicle: delete ${gameId}/${f.name}`,
-          sha: f.sha,
-        });
-        await new Promise(r => setTimeout(r, 150));
+    if (IS_ELECTRON) {
+      await window.chronicle.deleteGame(gameId);
+    } else {
+      const files = await ghList(`saves/${gameId}`);
+      for (const f of files) {
+        if (f.type === 'file') {
+          await ghRequest('DELETE', `saves/${gameId}/${f.name}`, {
+            message: `Chronicle: delete ${gameId}/${f.name}`,
+            sha: f.sha,
+          });
+          await new Promise(r => setTimeout(r, 150));
+        }
       }
     }
     cardEl.remove();
@@ -975,20 +1206,39 @@ async function finalizeInterview(reply, msgs) {
       lastPlayed: now, created: now, gameId
     }, null, 2);
 
-    // Write files sequentially — GitHub rejects rapid parallel writes
-    const files = [
-      [`saves/${gameId}/meta.json`,           meta],
-      [`saves/${gameId}/world-state.txt`,     docs.worldState     || ''],
-      [`saves/${gameId}/character-sheet.txt`, docs.characterSheet || ''],
-      [`saves/${gameId}/npc-dossier.txt`,     docs.npcDossier     || ''],
-      [`saves/${gameId}/quest-log.txt`,       docs.questLog       || ''],
-      [`saves/${gameId}/city-ledger.txt`,     docs.cityLedger     || ''],
-      [`saves/${gameId}/session-summary.txt`, docs.sessionSummary || ''],
-      [`saves/${gameId}/chat-history.json`,   '[]'],
-    ];
-    for (const [path, fileContent] of files) {
-      await ghWrite(path, fileContent);
-      await new Promise(r => setTimeout(r, 250));
+    // Save game files
+    if (IS_ELECTRON) {
+      await window.chronicle.createGame({
+        id: gameId,
+        name: docs.gameName || 'Untitled Chronicle',
+        character: docs.characterName || '',
+      });
+      const gameFiles = {
+        'world-state.txt':     docs.worldState     || '',
+        'character-sheet.txt': docs.characterSheet || '',
+        'npc-dossier.txt':     docs.npcDossier     || '',
+        'quest-log.txt':       docs.questLog       || '',
+        'city-ledger.txt':     docs.cityLedger     || '',
+        'session-summary.txt': docs.sessionSummary || '',
+      };
+      for (const [name, fileContent] of Object.entries(gameFiles)) {
+        await window.chronicle.writeFile(gameId, name, fileContent);
+      }
+    } else {
+      const files = [
+        [`saves/${gameId}/meta.json`,           meta],
+        [`saves/${gameId}/world-state.txt`,     docs.worldState     || ''],
+        [`saves/${gameId}/character-sheet.txt`, docs.characterSheet || ''],
+        [`saves/${gameId}/npc-dossier.txt`,     docs.npcDossier     || ''],
+        [`saves/${gameId}/quest-log.txt`,       docs.questLog       || ''],
+        [`saves/${gameId}/city-ledger.txt`,     docs.cityLedger     || ''],
+        [`saves/${gameId}/session-summary.txt`, docs.sessionSummary || ''],
+        [`saves/${gameId}/chat-history.json`,   '[]'],
+      ];
+      for (const [path, fileContent] of files) {
+        await ghWrite(path, fileContent);
+        await new Promise(r => setTimeout(r, 250));
+      }
     }
 
     gen.remove();
@@ -1047,8 +1297,33 @@ async function loadGame(gameId, preloadedDocs = null) {
     let loaded = {};
 
     if (preloadedDocs) {
-      // Use docs passed directly — avoids GitHub propagation delay after fresh write
       loaded = preloadedDocs;
+    } else if (IS_ELECTRON) {
+      // Load from local SQLite database
+      const files = await window.chronicle.readAllFiles(gameId);
+      for (const [name, fileContent] of Object.entries(files)) {
+        loaded[name] = { content: fileContent, sha: null };
+      }
+      // Load game metadata
+      const game = await window.chronicle.getGame(gameId);
+      if (game) {
+        loaded['_meta'] = game;
+      }
+      // Load compression log
+      const savedLog = await window.chronicle.getCompressionLog(gameId);
+      if (savedLog && savedLog.length > 0) {
+        compressionLog = savedLog;
+      }
+      // Restore sliding window if it was saved
+      const savedHistory = loaded['message-history.json']?.content;
+      if (savedHistory) {
+        try {
+          const parsed = JSON.parse(savedHistory);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            messageHistory = parsed;
+          }
+        } catch(e) {}
+      }
     } else {
       const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json','chronicle-log.txt'];
       await Promise.all(fileNames.map(async f => {
@@ -1057,8 +1332,11 @@ async function loadGame(gameId, preloadedDocs = null) {
       }));
     }
 
-    // Set header
-    if (loaded['meta.json']) {
+    // Set header — handle both Electron (game object) and GitHub (meta.json) formats
+    if (loaded['_meta']) {
+      document.getElementById('game-title').textContent    = loaded['_meta'].name      || 'The Chronicle';
+      document.getElementById('game-subtitle').textContent = loaded['_meta'].character || 'Session Active';
+    } else if (loaded['meta.json']) {
       try {
         const m = JSON.parse(loaded['meta.json'].content);
         document.getElementById('game-title').textContent    = m.name      || 'The Chronicle';
@@ -1066,16 +1344,17 @@ async function loadGame(gameId, preloadedDocs = null) {
       } catch(e) {}
     }
 
-    // Restore compression log and recent history
-    compressionLog = [];
-    if (loaded['chat-history.json']) {
-      try {
-        const saved = JSON.parse(loaded['chat-history.json'].content);
-        if (Array.isArray(saved) && saved.length > 0) {
-          // chat-history.json now stores only compression summaries
-          compressionLog = saved;
-        }
-      } catch(e) {}
+    // Restore compression log (Electron loads it above; GitHub loads from chat-history.json)
+    if (!IS_ELECTRON) {
+      compressionLog = [];
+      if (loaded['chat-history.json']) {
+        try {
+          const saved = JSON.parse(loaded['chat-history.json'].content);
+          if (Array.isArray(saved) && saved.length > 0) {
+            compressionLog = saved;
+          }
+        } catch(e) {}
+      }
     }
 
     if (messageHistory.length === 0) {
@@ -1130,23 +1409,36 @@ async function exitGame() {
   if (!activeGameId) { showLibrary(); return; }
   setOrb('saving');
   try {
-    await saveToGitHub();
+    await saveGame();
     showSuccess('Chronicle saved.');
-    setTimeout(() => { activeGameId = null; messageHistory = []; showLibrary(); }, 800);
+    setTimeout(() => { activeGameId = null; messageHistory = []; compressionLog = []; showLibrary(); }, 800);
   } catch(e) {
     showError('Save failed: ' + e.message);
     setTimeout(() => showLibrary(), 1500);
   }
 }
 
-async function saveToGitHub() {
+async function saveGame() {
   if (!activeGameId) return;
 
-  // Save compression log (mechanical summaries only — not raw exchanges)
+  if (IS_ELECTRON) {
+    await window.chronicle.updateGameLastPlayed(activeGameId);
+    // Save sliding window so session survives close/reopen
+    await window.chronicle.writeFile(
+      activeGameId,
+      'message-history.json',
+      JSON.stringify(messageHistory)
+    );
+  } else {
+    await saveToGitHub();
+  }
+}
+
+async function saveToGitHub() {
+  if (!activeGameId) return;
   const logJson = JSON.stringify(compressionLog, null, 2);
   const r = await ghWrite(`saves/${activeGameId}/chat-history.json`, logJson, activeFileShas['chat-history.json'] || null);
   if (r?.content?.sha) activeFileShas['chat-history.json'] = r.content.sha;
-
   try {
     const metaFile = await ghRead(`saves/${activeGameId}/meta.json`);
     if (metaFile) {
@@ -1186,7 +1478,7 @@ async function sendMessage() {
       !m.content.startsWith('[WORLD STATE]') &&
       !m.content.startsWith('[The player')
     ).length;
-    if (playerCount % 5 === 0) saveToGitHub().catch(() => {});
+    if (playerCount % 5 === 0) saveGame().catch(() => {});
 
     // Ask Claude if now is a good time to compress (runs silently in background)
     considerCompression(reply).catch(() => {});
@@ -1250,13 +1542,63 @@ HOLD or COMPRESS?` }],
 // ═══════════════════════════════════════════════════════════
 // CLAUDE API
 // ═══════════════════════════════════════════════════════════
-async function callClaude(messages, system, maxTokens = 1024, retries = 4) {
-  const { anthropicKey } = getSettings();
-  let lastError;
+// ── Provider-aware narrator call ─────────────────────────
+// Unified interface: same signature regardless of provider.
+// Add new providers here as new cases.
 
+async function callClaude(messages, system, maxTokens = 1024, retries = 4) {
+  return callNarrator(messages, system, maxTokens, retries);
+}
+
+async function callNarrator(messages, system, maxTokens = 1024, retries = 4) {
+  const s        = getSettings();
+  const provider = s.provider || 'ollama';
+  const model    = s.model    || NARRATOR_PROVIDERS[provider].defaultModel;
+
+  if (provider === 'ollama') {
+    return callOllama(messages, system, model, maxTokens);
+  } else if (provider === 'anthropic') {
+    return callAnthropic(messages, system, model, s.anthropicKey, maxTokens, retries);
+  } else if (provider === 'openai') {
+    return callOpenAI(messages, system, model, s.anthropicKey, maxTokens, retries);
+  } else if (provider === 'custom') {
+    return callOpenAI(messages, system, model, s.anthropicKey, maxTokens, retries, s.endpoint);
+  }
+  throw new Error(`Unknown narrator provider: ${provider}`);
+}
+
+// ── Ollama ───────────────────────────────────────────────
+async function callOllama(messages, system, model, maxTokens) {
+  // Ollama uses OpenAI-compatible /api/chat format
+  const ollamaMessages = system
+    ? [{ role: 'system', content: system }, ...messages]
+    : messages;
+
+  const res = await fetch('http://localhost:11434/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: ollamaMessages,
+      stream: false,
+      options: { num_predict: maxTokens },
+    }),
+  });
+
+  if (!res.ok) {
+    const e = await res.text().catch(() => '');
+    throw new Error(`Ollama error ${res.status}: ${e}`);
+  }
+
+  const data = await res.json();
+  return data.message?.content || '';
+}
+
+// ── Anthropic ────────────────────────────────────────────
+async function callAnthropic(messages, system, model, apiKey, maxTokens, retries) {
+  let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (attempt > 0) {
-      // Exponential backoff: 2s, 4s, 8s, 16s
       const wait = Math.pow(2, attempt) * 1000;
       console.log(`[Chronicle] Rate limited — retrying in ${wait/1000}s (attempt ${attempt}/${retries})`);
       await new Promise(r => setTimeout(r, wait));
@@ -1266,20 +1608,17 @@ async function callClaude(messages, system, maxTokens = 1024, retries = 4) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
-      body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system, messages }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }),
     });
 
     if (res.status === 429) {
-      // Check if Anthropic sent a retry-after header
       const retryAfter = res.headers.get('retry-after');
       if (retryAfter && attempt < retries) {
-        const wait = (parseInt(retryAfter) + 1) * 1000;
-        console.log(`[Chronicle] Rate limited — retry-after: ${retryAfter}s`);
-        await new Promise(r => setTimeout(r, wait));
+        await new Promise(r => setTimeout(r, (parseInt(retryAfter) + 1) * 1000));
         continue;
       }
       lastError = new Error('Too many requests — please wait a moment and try again.');
@@ -1293,7 +1632,45 @@ async function callClaude(messages, system, maxTokens = 1024, retries = 4) {
 
     return (await res.json()).content[0].text;
   }
+  throw lastError || new Error('Request failed after retries.');
+}
 
+// ── OpenAI-compatible (OpenAI + custom endpoints) ────────
+async function callOpenAI(messages, system, model, apiKey, maxTokens, retries, endpoint) {
+  const url = endpoint || 'https://api.openai.com/v1/chat/completions';
+  const openAIMessages = system
+    ? [{ role: 'system', content: system }, ...messages]
+    : messages;
+
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) {
+      const wait = Math.pow(2, attempt) * 1000;
+      await new Promise(r => setTimeout(r, wait));
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({ model, max_tokens: maxTokens, messages: openAIMessages }),
+    });
+
+    if (res.status === 429) {
+      lastError = new Error('Too many requests — please wait a moment and try again.');
+      continue;
+    }
+
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e?.error?.message || `API error ${res.status}`);
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || '';
+  }
   throw lastError || new Error('Request failed after retries.');
 }
 
@@ -1335,8 +1712,14 @@ async function compressHistory() {
     messageHistory = messageHistory.slice(0, 2);
 
     updateCounter();
-    saveToGitHub().catch(() => {});
-    appendToChronicleLog(entry.literary).catch(() => {});
+
+    if (IS_ELECTRON) {
+      window.chronicle.appendCompressionEntry(activeGameId, entry.mechanical, entry.literary).catch(() => {});
+      window.chronicle.appendChronicleEntry(activeGameId, entry.literary).catch(() => {});
+    } else {
+      saveToGitHub().catch(() => {});
+      appendToChronicleLog(entry.literary).catch(() => {});
+    }
 
     console.log('[Chronicle] Compression complete.');
   } catch(e) {
@@ -1348,6 +1731,10 @@ async function compressHistory() {
 }
 
 async function appendToChronicleLog(literaryEntry) {
+  if (IS_ELECTRON) {
+    await window.chronicle.appendChronicleEntry(activeGameId, literaryEntry);
+    return;
+  }
   const existing = await ghRead(`saves/${activeGameId}/chronicle-log.txt`).catch(() => null);
   const existingText = existing?.content || '';
   const sha = existing?.sha || null;
@@ -1930,20 +2317,39 @@ async function saveImportedGame() {
   }, null, 2);
 
   try {
-    const files = [
-      [`saves/${gameId}/meta.json`,           meta],
-      [`saves/${gameId}/world-state.txt`,     importExtracted.worldState     || ''],
-      [`saves/${gameId}/character-sheet.txt`, importExtracted.characterSheet || ''],
-      [`saves/${gameId}/npc-dossier.txt`,     importExtracted.npcDossier     || ''],
-      [`saves/${gameId}/quest-log.txt`,       importExtracted.questLog       || ''],
-      [`saves/${gameId}/city-ledger.txt`,     importExtracted.cityLedger     || ''],
-      [`saves/${gameId}/session-summary.txt`, importExtracted.sessionSummary || ''],
-      [`saves/${gameId}/chat-history.json`,   '[]'],
-    ];
-
-    for (const [path, fileContent] of files) {
-      await ghWrite(path, fileContent);
-      await new Promise(r => setTimeout(r, 200));
+    if (IS_ELECTRON) {
+      await window.chronicle.createGame({
+        id: gameId,
+        name: gameName,
+        character: importExtracted.characterName || '',
+        imported: true,
+      });
+      const gameFiles = {
+        'world-state.txt':     importExtracted.worldState     || '',
+        'character-sheet.txt': importExtracted.characterSheet || '',
+        'npc-dossier.txt':     importExtracted.npcDossier     || '',
+        'quest-log.txt':       importExtracted.questLog       || '',
+        'city-ledger.txt':     importExtracted.cityLedger     || '',
+        'session-summary.txt': importExtracted.sessionSummary || '',
+      };
+      for (const [name, fileContent] of Object.entries(gameFiles)) {
+        await window.chronicle.writeFile(gameId, name, fileContent);
+      }
+    } else {
+      const files = [
+        [`saves/${gameId}/meta.json`,           meta],
+        [`saves/${gameId}/world-state.txt`,     importExtracted.worldState     || ''],
+        [`saves/${gameId}/character-sheet.txt`, importExtracted.characterSheet || ''],
+        [`saves/${gameId}/npc-dossier.txt`,     importExtracted.npcDossier     || ''],
+        [`saves/${gameId}/quest-log.txt`,       importExtracted.questLog       || ''],
+        [`saves/${gameId}/city-ledger.txt`,     importExtracted.cityLedger     || ''],
+        [`saves/${gameId}/session-summary.txt`, importExtracted.sessionSummary || ''],
+        [`saves/${gameId}/chat-history.json`,   '[]'],
+      ];
+      for (const [path, fileContent] of files) {
+        await ghWrite(path, fileContent);
+        await new Promise(r => setTimeout(r, 200));
+      }
     }
 
     // Build preloaded docs BEFORE resetting importExtracted
@@ -1992,8 +2398,17 @@ window.addEventListener('DOMContentLoaded', () => {
     populateVoiceDropdown(voiceName);
   }, 100);
 
-  const { anthropicKey, githubToken } = getSettings();
-  if (!anthropicKey || !githubToken) {
+  const s = getSettings();
+  const cfg = NARRATOR_PROVIDERS[s.provider] || NARRATOR_PROVIDERS.ollama;
+  const needsKey = cfg.requiresKey && !s.anthropicKey;
+  const neverConfigured = !localStorage.getItem('ch_provider');
+  if (needsKey || neverConfigured) {
+    // First time or key missing — open settings on narrator tab
+    document.getElementById('settings-back').style.display = 'none';
+    switchSettingsTab('narrator');
+    // Pre-select saved provider if any
+    const providerEl = document.getElementById('s-provider');
+    if (providerEl) { providerEl.value = s.provider; onProviderChange(); }
     showScreen('settings');
   } else {
     showLibrary();

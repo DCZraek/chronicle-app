@@ -22,7 +22,7 @@ const ICON = `iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAw0lEQVRYhe2WMQ6DMA
 function startServers() {
   if (isRunning) return
   console.log('[Tray] Starting Kokoro...')
-  kokoroProcess = spawn('python', [KOKORO_PATH], {
+  kokoroProcess = spawn('py', [KOKORO_PATH], {
     detached: false,
     stdio:    'ignore',
   })

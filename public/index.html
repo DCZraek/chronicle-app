@@ -452,15 +452,21 @@ body::before {
         <div>
           <label class="field-label">Provider</label>
           <select class="field-input" id="s-provider" onchange="onProviderChange()" style="cursor:pointer;">
-            <option value="ollama">Local — Ollama (phi3:mini)</option>
-            <option value="anthropic">Anthropic — Claude</option>
-            <option value="openai">OpenAI — GPT</option>
+            <option value="ollama">Ollama — Local (llama3.1:8b)</option>
+            <option value="anthropic">Claude — Anthropic</option>
             <option value="custom">Custom Endpoint</option>
           </select>
         </div>
-        <div>
+        <div id="s-model-text-row">
           <label class="field-label">Model</label>
-          <input class="field-input" type="text" id="s-model" placeholder="e.g. phi3:mini" autocomplete="off" />
+          <input class="field-input" type="text" id="s-model" placeholder="e.g. llama3.1:8b" autocomplete="off" />
+        </div>
+        <div id="s-model-claude-row" style="display:none;">
+          <label class="field-label">Model</label>
+          <select class="field-input" id="s-model-claude" style="cursor:pointer;">
+            <option value="claude-opus-4-6">Claude Opus 4.6 — Most capable</option>
+            <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — Faster, efficient</option>
+          </select>
         </div>
         <div id="s-api-key-row">
           <label class="field-label">API Key</label>
@@ -917,32 +923,25 @@ Use exactly these keys with plain string values:
 // ═══════════════════════════════════════════════════════════
 const NARRATOR_PROVIDERS = {
   ollama: {
-    label:       'Local — Ollama',
+    label:       'Ollama — Local (llama3.1:8b)',
     endpoint:    'http://localhost:11434/api/chat',
-    defaultModel:'phi3:mini',
+    defaultModel:'llama3.1:8b',
     requiresKey: false,
-    hint:        'Running locally via Ollama. No API key required.',
+    hint:        'Running locally via Ollama. No API key required. Used for development and testing.',
   },
   anthropic: {
-    label:       'Anthropic — Claude',
+    label:       'Claude — Anthropic',
     endpoint:    'https://api.anthropic.com/v1/messages',
-    defaultModel:'claude-sonnet-4-20250514',
+    defaultModel:'claude-opus-4-6',
     requiresKey: true,
     hint:        'Get your key from console.anthropic.com → API Keys.',
-  },
-  openai: {
-    label:       'OpenAI — GPT',
-    endpoint:    'https://api.openai.com/v1/chat/completions',
-    defaultModel:'gpt-4o',
-    requiresKey: true,
-    hint:        'Get your key from platform.openai.com → API Keys.',
   },
   custom: {
     label:       'Custom Endpoint',
     endpoint:    '',
     defaultModel:'',
-    requiresKey: true,
-    hint:        'Enter any OpenAI-compatible endpoint, model, and API key. Leave key blank if not required.',
+    requiresKey: false,
+    hint:        'Enter any OpenAI-compatible endpoint and model. Add an API key if required.',
   },
 };
 
@@ -952,16 +951,26 @@ function getActiveProvider() {
 }
 
 function onProviderChange() {
-  const id    = document.getElementById('s-provider').value;
-  const cfg   = NARRATOR_PROVIDERS[id];
-  const model = document.getElementById('s-model');
-  const keyRow = document.getElementById('s-api-key-row');
+  const id      = document.getElementById('s-provider').value;
+  const cfg     = NARRATOR_PROVIDERS[id];
+  const keyRow  = document.getElementById('s-api-key-row');
   const endpointRow = document.getElementById('s-endpoint-row');
-  const hint  = document.getElementById('s-provider-hint');
+  const hint    = document.getElementById('s-provider-hint');
+  const modelTextRow   = document.getElementById('s-model-text-row');
+  const modelClaudeRow = document.getElementById('s-model-claude-row');
 
-  // Auto-fill model if field is empty or was a default
-  const isDefault = Object.values(NARRATOR_PROVIDERS).some(p => p.defaultModel === model.value);
-  if (!model.value || isDefault) model.value = cfg.defaultModel;
+  // Show the right model selector
+  if (id === 'anthropic') {
+    modelTextRow.style.display   = 'none';
+    modelClaudeRow.style.display = '';
+  } else {
+    modelTextRow.style.display   = '';
+    modelClaudeRow.style.display = 'none';
+    // Auto-fill model text if empty or was a default
+    const modelInput = document.getElementById('s-model');
+    const isDefault  = Object.values(NARRATOR_PROVIDERS).some(p => p.defaultModel === modelInput.value);
+    if (!modelInput.value || isDefault) modelInput.value = cfg.defaultModel;
+  }
 
   keyRow.style.display      = cfg.requiresKey ? '' : 'none';
   endpointRow.style.display = id === 'custom' ? '' : 'none';
@@ -984,7 +993,7 @@ function switchSettingsTab(name) {
 function getSettings() {
   return {
     provider:     localStorage.getItem('ch_provider')  || 'ollama',
-    model:        localStorage.getItem('ch_model')     || NARRATOR_PROVIDERS.ollama.defaultModel,
+    model:        localStorage.getItem('ch_model')     || NARRATOR_PROVIDERS[localStorage.getItem('ch_provider') || 'ollama'].defaultModel,
     anthropicKey: localStorage.getItem('ch_anthropic') || '',
     endpoint:     localStorage.getItem('ch_endpoint')  || '',
     voiceName:    localStorage.getItem('ch_voice')     || '',
@@ -993,7 +1002,9 @@ function getSettings() {
 
 function saveSettings() {
   const provider = document.getElementById('s-provider').value;
-  const model    = document.getElementById('s-model').value.trim();
+  const model    = provider === 'anthropic'
+    ? document.getElementById('s-model-claude').value
+    : document.getElementById('s-model').value.trim();
   const apiKey   = document.getElementById('s-anthropic').value.trim();
   const endpoint = document.getElementById('s-endpoint') ? document.getElementById('s-endpoint').value.trim() : '';
   const voice    = document.getElementById('s-voice').value;
@@ -1023,7 +1034,11 @@ function openSettingsFromLibrary() {
   const s = getSettings();
   const providerEl = document.getElementById('s-provider');
   providerEl.value = s.provider;
-  document.getElementById('s-model').value     = s.model;
+  if (s.provider === 'anthropic') {
+    document.getElementById('s-model-claude').value = s.model || 'claude-opus-4-6';
+  } else {
+    document.getElementById('s-model').value = s.model;
+  }
   document.getElementById('s-anthropic').value = s.anthropicKey;
   if (document.getElementById('s-endpoint')) document.getElementById('s-endpoint').value = s.endpoint;
   populateVoiceDropdown(s.voiceName);
@@ -1531,7 +1546,7 @@ HOLD or COMPRESS?` }],
 // ═══════════════════════════════════════════════════════════
 // ── Provider-aware narrator call ─────────────────────────
 // Unified interface: same signature regardless of provider.
-// Add new providers here as new cases.
+// Providers: ollama | anthropic | custom
 
 async function callClaude(messages, system, maxTokens = 1024, retries = 4) {
   return callNarrator(messages, system, maxTokens, retries);
@@ -1546,8 +1561,6 @@ async function callNarrator(messages, system, maxTokens = 1024, retries = 4) {
     return callOllama(messages, system, model, maxTokens);
   } else if (provider === 'anthropic') {
     return callAnthropic(messages, system, model, s.anthropicKey, maxTokens, retries);
-  } else if (provider === 'openai') {
-    return callOpenAI(messages, system, model, s.anthropicKey, maxTokens, retries);
   } else if (provider === 'custom') {
     return callOpenAI(messages, system, model, s.anthropicKey, maxTokens, retries, s.endpoint);
   }

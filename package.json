@@ -1,23 +1,20 @@
 {
   "name": "chronicle-app",
   "version": "1.0.0",
-  "description": "",
-  "main": "main.js",
+  "description": "A local AI-powered tabletop RPG narrator",
+  "main": "tray.js",
   "scripts": {
-    "start": "electron .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node tray.js",
+    "server": "node chronicle-server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "devDependencies": {
-    "electron": "^41.0.2",
-    "electron-rebuild": "^3.2.9"
-  },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "systray2": "^2.0.5"
   }
 }

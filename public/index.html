@@ -587,14 +587,6 @@ body::before {
     <!-- ── ADVANCED TAB (scaffolded) ─────────────────────── -->
     <div class="settings-panel" id="settings-panel-advanced">
       <div class="settings-section settings-inert">
-        <div class="settings-section-title">GitHub Sync (Optional)</div>
-        <div>
-          <label class="field-label">Personal Access Token</label>
-          <input class="field-input" type="password" id="s-github" placeholder="ghp_..." autocomplete="off" disabled />
-        </div>
-        <div class="settings-hint">Sync saves to a private GitHub repository as a backup.</div>
-      </div>
-      <div class="settings-section settings-inert">
         <div class="settings-section-title">Data</div>
         <div style="display:flex;gap:10px;">
           <button class="ghost-btn" style="flex:1;opacity:0.4;cursor:not-allowed;" disabled>Export All Saves</button>
@@ -811,7 +803,6 @@ window.chronicle = {
   appendChronicleEntry:   (gameId, entry)            => api('POST',   `/games/${gameId}/chronicle-log`, { entry }),
 };
 
-const IS_ELECTRON = true;
 const GM_SYSTEM_PROMPT = `You are the Game Master of a living, breathing fantasy world. You are a novelist first and a game master second. Your narration is literary, atmospheric, and immersive — rich with sensory detail, distinct character voices, and emotional weight. You never break the fourth wall. You never present numbered choices or menus. You never reference game mechanics, dice, stats, or systems. Everything the player experiences reads like a chapter in a novel.
 You end every response by describing the scene the player finds themselves in and letting silence hang — waiting for them to act. You never ask "what do you do." You simply leave the world open and alive around them.
 
@@ -997,7 +988,6 @@ function getSettings() {
     anthropicKey: localStorage.getItem('ch_anthropic') || '',
     endpoint:     localStorage.getItem('ch_endpoint')  || '',
     voiceName:    localStorage.getItem('ch_voice')     || '',
-    githubToken:  localStorage.getItem('ch_github')    || '',
   };
 }
 
@@ -1055,77 +1045,17 @@ function showScreen(name) {
   document.getElementById('screen-' + name).classList.add('active');
 }
 
-// ═══════════════════════════════════════════════════════════
-// GITHUB API
-// ═══════════════════════════════════════════════════════════
-async function ghRequest(method, path, body = null) {
-  const { githubToken } = getSettings();
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-    method,
-    headers: {
-      'Authorization': `token ${githubToken}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : null,
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    const e = await res.json().catch(() => ({}));
-    throw new Error(e.message || `GitHub ${res.status}`);
-  }
-  return res.json();
-}
-
-async function ghRead(path) {
-  const d = await ghRequest('GET', path);
-  if (!d) return null;
-  return { content: decodeURIComponent(escape(atob(d.content.replace(/\n/g,'')))), sha: d.sha };
-}
-
-async function ghWrite(path, content, sha = null) {
-  const body = { message: `Chronicle: ${path}`, content: btoa(unescape(encodeURIComponent(content))) };
-  if (sha) body.sha = sha;
-  return ghRequest('PUT', path, body);
-}
-
-async function ghList(path) {
-  const d = await ghRequest('GET', path);
-  return Array.isArray(d) ? d : [];
-}
 
 // ═══════════════════════════════════════════════════════════
 // LIBRARY
 // ═══════════════════════════════════════════════════════════
-// GitHub fallback — list games from github saves repo
-async function ghListGames() {
-  const items = await ghList('saves');
-  const games = items.filter(i => i.type === 'dir');
-  const result = [];
-  for (const g of games) {
-    try {
-      const meta = await ghRead(`saves/${g.name}/meta.json`);
-      if (meta) {
-        const m = JSON.parse(meta.content);
-        result.push({ id: g.name, name: m.name || g.name, character: m.character || '', last_played: m.lastPlayed || '' });
-      }
-    } catch(e) {
-      result.push({ id: g.name, name: g.name, character: '', last_played: '' });
-    }
-  }
-  return result;
-}
-
 async function showLibrary() {
   showScreen('library');
   const grid = document.getElementById('library-grid');
   grid.innerHTML = '<div class="library-loading">Retrieving your chronicles...</div>';
 
   try {
-    const games = IS_ELECTRON
-      ? await window.chronicle.listGames()
-      : await ghListGames();
-
+    const games = await window.chronicle.listGames();
     grid.innerHTML = '';
 
     games.forEach((game, i) => {
@@ -1178,20 +1108,7 @@ function confirmDeleteGame(gameId, gameName, cardEl) {
 async function deleteGame(gameId, cardEl) {
   cardEl.innerHTML = `<div style="flex:1;font-style:italic;color:var(--ash);font-size:0.85rem;padding:4px 0;">Deleting...</div>`;
   try {
-    if (IS_ELECTRON) {
-      await window.chronicle.deleteGame(gameId);
-    } else {
-      const files = await ghList(`saves/${gameId}`);
-      for (const f of files) {
-        if (f.type === 'file') {
-          await ghRequest('DELETE', `saves/${gameId}/${f.name}`, {
-            message: `Chronicle: delete ${gameId}/${f.name}`,
-            sha: f.sha,
-          });
-          await new Promise(r => setTimeout(r, 150));
-        }
-      }
-    }
+    await window.chronicle.deleteGame(gameId);
     cardEl.remove();
     showSuccess('Chronicle deleted.');
   } catch(e) {
@@ -1331,38 +1248,21 @@ async function finalizeInterview(reply, msgs) {
       lastPlayed: now, created: now, gameId
     }, null, 2);
 
-    if (IS_ELECTRON) {
-      await window.chronicle.createGame({
-        id: gameId,
-        name: docStr(docs.gameName) || 'Untitled Chronicle',
-        character: docStr(docs.characterName) || '',
-      });
-      const gameFiles = {
-        'world-state.txt':     docStr(docs.worldState),
-        'character-sheet.txt': docStr(docs.characterSheet),
-        'npc-dossier.txt':     docStr(docs.npcDossier),
-        'quest-log.txt':       docStr(docs.questLog),
-        'city-ledger.txt':     docStr(docs.cityLedger),
-        'session-summary.txt': docStr(docs.sessionSummary),
-      };
-      for (const [name, fileContent] of Object.entries(gameFiles)) {
-        await window.chronicle.writeFile(gameId, name, fileContent);
-      }
-    } else {
-      const files = [
-        [`saves/${gameId}/meta.json`,           meta],
-        [`saves/${gameId}/world-state.txt`,     docs.worldState     || ''],
-        [`saves/${gameId}/character-sheet.txt`, docs.characterSheet || ''],
-        [`saves/${gameId}/npc-dossier.txt`,     docs.npcDossier     || ''],
-        [`saves/${gameId}/quest-log.txt`,       docs.questLog       || ''],
-        [`saves/${gameId}/city-ledger.txt`,     docs.cityLedger     || ''],
-        [`saves/${gameId}/session-summary.txt`, docs.sessionSummary || ''],
-        [`saves/${gameId}/chat-history.json`,   '[]'],
-      ];
-      for (const [path, fileContent] of files) {
-        await ghWrite(path, fileContent);
-        await new Promise(r => setTimeout(r, 250));
-      }
+    await window.chronicle.createGame({
+      id: gameId,
+      name: docStr(docs.gameName) || 'Untitled Chronicle',
+      character: docStr(docs.characterName) || '',
+    });
+    const gameFiles = {
+      'world-state.txt':     docStr(docs.worldState),
+      'character-sheet.txt': docStr(docs.characterSheet),
+      'npc-dossier.txt':     docStr(docs.npcDossier),
+      'quest-log.txt':       docStr(docs.questLog),
+      'city-ledger.txt':     docStr(docs.cityLedger),
+      'session-summary.txt': docStr(docs.sessionSummary),
+    };
+    for (const [name, fileContent] of Object.entries(gameFiles)) {
+      await window.chronicle.writeFile(gameId, name, fileContent);
     }
 
     gen.remove();
@@ -1404,7 +1304,6 @@ function handleInterviewKey(e) {
 // LOAD GAME
 // ═══════════════════════════════════════════════════════════
 let activeGameId      = null;
-let activeFileShas    = {};
 let messageHistory    = [];   // sliding window — raw recent exchanges only
 let compressionLog    = [];   // mechanical summaries for Claude context
 let isThinking        = false;
@@ -1422,9 +1321,9 @@ async function loadGame(gameId, preloadedDocs = null) {
   try {
     let loaded = {};
 
-    if (preloadedDocs) {
+if (preloadedDocs) {
       loaded = preloadedDocs;
-    } else if (IS_ELECTRON) {
+    } else {
       // Load from local SQLite database
       const files = await window.chronicle.readAllFiles(gameId);
       for (const [name, fileContent] of Object.entries(files)) {
@@ -1457,37 +1356,12 @@ async function loadGame(gameId, preloadedDocs = null) {
           }
         } catch(e) {}
       }
-    } else {
-      const fileNames = ['meta.json','world-state.txt','character-sheet.txt','npc-dossier.txt','quest-log.txt','session-summary.txt','chat-history.json','chronicle-log.txt'];
-      await Promise.all(fileNames.map(async f => {
-        const d = await ghRead(`saves/${gameId}/${f}`);
-        if (d) { loaded[f] = d; activeFileShas[f] = d.sha; }
-      }));
     }
 
-    // Set header — handle both Electron (game object) and GitHub (meta.json) formats
+// Set header from game metadata
     if (loaded['_meta']) {
       document.getElementById('game-title').textContent    = loaded['_meta'].name      || 'The Chronicle';
       document.getElementById('game-subtitle').textContent = loaded['_meta'].character || 'Session Active';
-    } else if (loaded['meta.json']) {
-      try {
-        const m = JSON.parse(loaded['meta.json'].content);
-        document.getElementById('game-title').textContent    = m.name      || 'The Chronicle';
-        document.getElementById('game-subtitle').textContent = m.character || 'Session Active';
-      } catch(e) {}
-    }
-
-    // Restore compression log (Electron loads it above; GitHub loads from chat-history.json)
-    if (!IS_ELECTRON) {
-      compressionLog = [];
-      if (loaded['chat-history.json']) {
-        try {
-          const saved = JSON.parse(loaded['chat-history.json'].content);
-          if (Array.isArray(saved) && saved.length > 0) {
-            compressionLog = saved;
-          }
-        } catch(e) {}
-      }
     }
 
     if (messageHistory.length === 0) {
@@ -1553,33 +1427,13 @@ async function exitGame() {
 
 async function saveGame() {
   if (!activeGameId) return;
-
-  if (IS_ELECTRON) {
-    await window.chronicle.updateGameLastPlayed(activeGameId);
-    // Save sliding window so session survives close/reopen
-    await window.chronicle.writeFile(
-      activeGameId,
-      'message-history.json',
-      JSON.stringify(messageHistory)
-    );
-  } else {
-    await saveToGitHub();
-  }
-}
-
-async function saveToGitHub() {
-  if (!activeGameId) return;
-  const logJson = JSON.stringify(compressionLog, null, 2);
-  const r = await ghWrite(`saves/${activeGameId}/chat-history.json`, logJson, activeFileShas['chat-history.json'] || null);
-  if (r?.content?.sha) activeFileShas['chat-history.json'] = r.content.sha;
-  try {
-    const metaFile = await ghRead(`saves/${activeGameId}/meta.json`);
-    if (metaFile) {
-      const m = JSON.parse(metaFile.content);
-      m.lastPlayed = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-      await ghWrite(`saves/${activeGameId}/meta.json`, JSON.stringify(m, null, 2), metaFile.sha);
-    }
-  } catch(e) {}
+  await window.chronicle.updateGameLastPlayed(activeGameId);
+  // Save sliding window so session survives close/reopen
+  await window.chronicle.writeFile(
+    activeGameId,
+    'message-history.json',
+    JSON.stringify(messageHistory)
+  );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1807,12 +1661,6 @@ async function callOpenAI(messages, system, model, apiKey, maxTokens, retries, e
   throw lastError || new Error('Request failed after retries.');
 }
 
-// ═══════════════════════════════════════════════════════════
-// MEMORY COMPRESSION
-// ═══════════════════════════════════════════════════════════
-
-
-
 
 // ═══════════════════════════════════════════════════════════
 // CONTEXT-AWARE COMPRESSION
@@ -1846,13 +1694,8 @@ async function compressHistory() {
 
     updateCounter();
 
-    if (IS_ELECTRON) {
-      window.chronicle.appendCompressionEntry(activeGameId, entry.mechanical, entry.literary).catch(() => {});
-      window.chronicle.appendChronicleEntry(activeGameId, entry.literary).catch(() => {});
-    } else {
-      saveToGitHub().catch(() => {});
-      appendToChronicleLog(entry.literary).catch(() => {});
-    }
+window.chronicle.appendCompressionEntry(activeGameId, entry.mechanical, entry.literary).catch(() => {});
+window.chronicle.appendChronicleEntry(activeGameId, entry.literary).catch(() => {});
 
     console.log('[Chronicle] Compression complete.');
   } catch(e) {
@@ -1863,21 +1706,6 @@ async function compressHistory() {
   }
 }
 
-async function appendToChronicleLog(literaryEntry) {
-  if (IS_ELECTRON) {
-    await window.chronicle.appendChronicleEntry(activeGameId, literaryEntry);
-    return;
-  }
-  const existing = await ghRead(`saves/${activeGameId}/chronicle-log.txt`).catch(() => null);
-  const existingText = existing?.content || '';
-  const sha = existing?.sha || null;
-  const timestamp = new Date().toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
-  });
-  const newEntry = `\n\n── ${timestamp} ──\n\n${literaryEntry}`;
-  await ghWrite(`saves/${activeGameId}/chronicle-log.txt`, existingText + newEntry, sha);
-}
 
 // ═══════════════════════════════════════════════════════════
 // VOICE — SPEECH TO TEXT
@@ -2560,39 +2388,22 @@ async function saveImportedGame() {
   }, null, 2);
 
   try {
-    if (IS_ELECTRON) {
-      await window.chronicle.createGame({
-        id: gameId,
-        name: gameName,
-        character: importExtracted.characterName || '',
-        imported: true,
-      });
-      const gameFiles = {
-        'world-state.txt':     importExtracted.worldState     || '',
-        'character-sheet.txt': importExtracted.characterSheet || '',
-        'npc-dossier.txt':     importExtracted.npcDossier     || '',
-        'quest-log.txt':       importExtracted.questLog       || '',
-        'city-ledger.txt':     importExtracted.cityLedger     || '',
-        'session-summary.txt': importExtracted.sessionSummary || '',
-      };
-      for (const [name, fileContent] of Object.entries(gameFiles)) {
-        await window.chronicle.writeFile(gameId, name, fileContent);
-      }
-    } else {
-      const files = [
-        [`saves/${gameId}/meta.json`,           meta],
-        [`saves/${gameId}/world-state.txt`,     importExtracted.worldState     || ''],
-        [`saves/${gameId}/character-sheet.txt`, importExtracted.characterSheet || ''],
-        [`saves/${gameId}/npc-dossier.txt`,     importExtracted.npcDossier     || ''],
-        [`saves/${gameId}/quest-log.txt`,       importExtracted.questLog       || ''],
-        [`saves/${gameId}/city-ledger.txt`,     importExtracted.cityLedger     || ''],
-        [`saves/${gameId}/session-summary.txt`, importExtracted.sessionSummary || ''],
-        [`saves/${gameId}/chat-history.json`,   '[]'],
-      ];
-      for (const [path, fileContent] of files) {
-        await ghWrite(path, fileContent);
-        await new Promise(r => setTimeout(r, 200));
-      }
+    await window.chronicle.createGame({
+      id: gameId,
+      name: gameName,
+      character: importExtracted.characterName || '',
+      imported: true,
+    });
+    const gameFiles = {
+      'world-state.txt':     importExtracted.worldState     || '',
+      'character-sheet.txt': importExtracted.characterSheet || '',
+      'npc-dossier.txt':     importExtracted.npcDossier     || '',
+      'quest-log.txt':       importExtracted.questLog       || '',
+      'city-ledger.txt':     importExtracted.cityLedger     || '',
+      'session-summary.txt': importExtracted.sessionSummary || '',
+    };
+    for (const [name, fileContent] of Object.entries(gameFiles)) {
+      await window.chronicle.writeFile(gameId, name, fileContent);
     }
 
     // Build preloaded docs BEFORE resetting importExtracted

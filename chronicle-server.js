@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════
 // CHRONICLE SERVER — Express web server
 // Serves the UI and exposes storage.js as a REST API
-// Replaces Electron's main.js + IPC bridge
+// Express server + REST API + token auth
 // ═══════════════════════════════════════════════════════════
 
 require('dotenv').config()
@@ -40,8 +40,7 @@ function requireAuth(req, res, next) {
 }
 
 // ── Static files ─────────────────────────────────────────
-// Serve index.html from /public (we'll move it there during migration)
-// For now serve from project root so nothing breaks immediately
+// Serves the UI from /public
 app.use(express.static(path.join(__dirname, 'public')))
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'))
@@ -73,7 +72,7 @@ app.post('/api/tts', requireAuth, express.raw({ type: '*/*', limit: '10mb' }), (
 
 // ═══════════════════════════════════════════════════════════
 // API ROUTES — all require auth
-// Mirror every IPC handler from the old main.js exactly
+// One endpoint per storage function
 // ═══════════════════════════════════════════════════════════
 
 const api = express.Router()

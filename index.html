@@ -477,10 +477,23 @@ body::before {
       <div class="settings-section">
         <div class="settings-section-title">Voice Narration</div>
         <div>
-          <label class="field-label">Narrator Voice</label>
+          <label class="field-label">Narrator Voice (Kokoro)</label>
           <div style="display:flex;gap:8px;align-items:center;">
-            <select class="field-input" id="s-voice" style="cursor:pointer;flex:1;">
-              <option value="">Loading voices...</option>
+            <select class="field-input" id="s-kokoro-voice" style="cursor:pointer;flex:1;" onchange="
+              const v = this.value;
+              localStorage.setItem('ch_kokoro_voice', v);
+              if (activeGameId) { localStorage.setItem('ch_kokoro_voice_' + activeGameId, v); voiceMap = {}; saveVoiceMap(); }
+            ">              <option value="bm_george">George (British Male — Deep)</option>
+              <option value="am_adam">Adam (American Male)</option>
+              <option value="am_michael">Michael (American Male)</option>
+              <option value="bm_lewis">Lewis (British Male)</option>
+              <option value="af_bella">Bella (American Female)</option>
+              <option value="af_nicole">Nicole (American Female)</option>
+              <option value="af_sarah">Sarah (American Female)</option>
+              <option value="af_sky">Sky (American Female — Warm)</option>
+              <option value="af_nova">Nova (American Female)</option>
+              <option value="bf_emma">Emma (British Female)</option>
+              <option value="bf_isabella">Isabella (British Female)</option>
             </select>
             <button id="preview-voice-btn" onclick="previewNarratorVoice()" style="
               background:var(--ember-dim);border:1px solid var(--ember);
@@ -494,7 +507,14 @@ body::before {
           </div>
           <div id="preview-status" style="font-size:0.75rem;color:var(--ash);font-style:italic;margin-top:6px;min-height:16px;"></div>
         </div>
-        <div class="settings-hint">Uses your device's built-in voice engine.</div>
+        <div class="settings-hint">Requires Kokoro TTS server running on localhost:5050. Falls back to browser voice if unavailable.</div>
+        <div>
+          <label class="field-label">Browser Voice (Fallback)</label>
+          <select class="field-input" id="s-voice" style="cursor:pointer;">
+            <option value="">Loading voices...</option>
+          </select>
+        </div>
+        <div class="settings-hint">Used when Kokoro is not running.</div>
       </div>
 
       <button class="primary-btn" onclick="saveSettings()">Save Settings</button>
@@ -830,7 +850,7 @@ Rules:
 - Do not address the player directly. Write as if recording history.
 - Begin with a timestamp placeholder: [SESSION_ENTRY]`;
 
-const INTERVIEW_SYSTEM = `You are setting up a new fantasy RPG campaign. Interview the player to understand their desired world and character, then generate complete GM Bible documents.
+const INTERVIEW_SYSTEM = `You are setting up a new fantasy RPG campaign. Interview the player to understand their desired world and character, then generate complete GM documents.
 
 Ask questions ONE AT A TIME in a warm, literary tone. Each question should feel like a master storyteller drawing out a tale. Ask about:
 1. The tone and feel of the world (dark and brutal, heroic, political, mysterious, etc.)
@@ -844,10 +864,24 @@ Ask questions ONE AT A TIME in a warm, literary tone. Each question should feel 
 After receiving answers to all 7 questions, write this exact line alone on its own line:
 [INTERVIEW_COMPLETE]
 
-Then immediately output a valid JSON object — no markdown, no backticks, just raw JSON — with these exact keys:
-{"gameName":"...","characterName":"...","worldState":"...","characterSheet":"...","npcDossier":"...","questLog":"...","cityLedger":"...","sessionSummary":"..."}
+Then immediately output a valid JSON object. CRITICAL RULES FOR THE JSON:
+- Every value MUST be a plain string — no nested objects, no arrays, no numbers
+- Do NOT use markdown, backticks, or code fences around the JSON
+- Do NOT include any text before the opening { or after the closing }
+- All string values must use escaped quotes for any quotes inside them
+- The JSON must be valid and parseable
 
-Make each value a rich detailed document. worldState: world overview, politics, where the character begins. characterSheet: appearance, abilities, background, equipment, strengths, weaknesses. npcDossier: 2-3 people the character knows. questLog: the opening situation. cityLedger: empty string if they command nothing, otherwise their holdings. sessionSummary: an atmospheric opening paragraph for the first session.`;
+Use exactly these keys with plain string values:
+{
+  "gameName": "a short evocative title for this story",
+  "characterName": "the character name only",
+  "worldState": "a detailed prose description of the world — politics, history, factions, tone, current tensions. Write in paragraphs not lists.",
+  "characterSheet": "a detailed prose description of the character — name, appearance, background, abilities, equipment, strengths, weaknesses. Write in paragraphs not lists.",
+  "npcDossier": "prose descriptions of 2-3 people the character knows — name, relationship, personality, secrets. Write in paragraphs.",
+  "questLog": "a prose description of the opening situation and what drives the character forward.",
+  "cityLedger": "empty string if the character commands nothing. Otherwise describe their holdings in prose.",
+  "sessionSummary": "one atmospheric paragraph describing the scene where the story begins."
+}`;
 
 // ═══════════════════════════════════════════════════════════
 // NARRATOR PROVIDERS
@@ -965,6 +999,9 @@ function openSettingsFromLibrary() {
   document.getElementById('s-anthropic').value = s.anthropicKey;
   if (document.getElementById('s-endpoint')) document.getElementById('s-endpoint').value = s.endpoint;
   populateVoiceDropdown(s.voiceName);
+  // Set Kokoro voice selector
+  const kokoroVoiceEl = document.getElementById('s-kokoro-voice');
+  if (kokoroVoiceEl) kokoroVoiceEl.value = getNarratorVoice();
   onProviderChange(); // sync visibility
   document.getElementById('settings-subtitle').textContent = 'Settings';
   document.getElementById('settings-back').style.display = 'block';
@@ -1165,8 +1202,20 @@ async function askNext(playerAnswer) {
     const reply = await callClaude(interviewHistory, INTERVIEW_SYSTEM, 2048);
     thinking.remove();
 
-    if (reply.includes('[INTERVIEW_COMPLETE]')) {
-      await finalizeInterview(reply, msgs);
+    // Check for completion — local models may wrap JSON in backticks or skip the trigger
+    const hasCompleteTag = reply.includes('[INTERVIEW_COMPLETE]');
+    // Strip markdown code fences if present
+    const cleaned = reply.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    const jsonStart = cleaned.indexOf('{');
+    const jsonEnd   = cleaned.lastIndexOf('}') + 1;
+    const hasJson   = jsonStart !== -1 && jsonEnd > 0;
+
+    if (hasCompleteTag || (hasJson && (
+      cleaned.includes('"gameName"') ||
+      cleaned.includes('"worldState"') ||
+      cleaned.includes('"characterName"')
+    ))) {
+      await finalizeInterview(cleaned, msgs);
       return;
     }
 
@@ -1193,33 +1242,70 @@ async function finalizeInterview(reply, msgs) {
   msgs.scrollTop = msgs.scrollHeight;
 
   try {
-    const jsonStart = reply.indexOf('{');
-    const jsonEnd   = reply.lastIndexOf('}') + 1;
+    const cleaned = reply.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    const jsonStart = cleaned.indexOf('{');
+    const jsonEnd   = cleaned.lastIndexOf('}') + 1;
     if (jsonStart === -1 || jsonEnd === 0) throw new Error('No JSON found in response.');
-    const docs = JSON.parse(reply.slice(jsonStart, jsonEnd));
+    // Attempt to repair common local model JSON issues
+    let jsonStr = cleaned.slice(jsonStart, jsonEnd);
+    // Remove unescaped single quotes inside strings (e.g. 5'6)
+    jsonStr = jsonStr.replace(/(\d)'(\d)/g, '$1$2');
+    let docs;
+    try {
+      docs = JSON.parse(jsonStr);
+    } catch(parseErr) {
+      // Last resort: try extracting just the key fields we need
+      console.warn('[Chronicle] JSON parse failed, attempting field extraction:', parseErr);
+      docs = {};
+      const fieldMatch = (key) => {
+        const m = jsonStr.match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`, 's'));
+        return m ? m[1] : '';
+      };
+      docs.gameName      = fieldMatch('gameName');
+      docs.characterName = fieldMatch('characterName');
+      docs.sessionSummary = fieldMatch('sessionSummary');
+      docs.cityLedger    = fieldMatch('cityLedger');
+      // For complex fields just grab raw text between the key and next key
+      ['worldState','characterSheet','npcDossier','questLog'].forEach(key => {
+        const m = jsonStr.match(new RegExp(`"${key}"\\s*:\\s*([\\s\\S]*?)(?=,\\s*"\\w+"|\\s*\\}$)`, 'm'));
+        docs[key] = m ? m[1].trim().replace(/^"|"$/g, '') : '';
+      });
+    }
 
     const gameId = 'game-' + Date.now();
     const now = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    // Local models sometimes return objects instead of strings — normalize everything
+    function docStr(val) {
+      if (!val) return '';
+      if (typeof val === 'string') return val;
+      if (Array.isArray(val)) return val.map(item =>
+        typeof item === 'object' ? Object.entries(item).map(([k,v]) => `${k}: ${v}`).join('\n') : String(item)
+      ).join('\n\n');
+      if (typeof val === 'object') return Object.entries(val).map(([k,v]) =>
+        `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`
+      ).join('\n');
+      return String(val);
+    }
     const meta = JSON.stringify({
-      name: docs.gameName || 'Untitled Chronicle',
-      character: docs.characterName || '',
+      name: docStr(docs.gameName) || 'Untitled Chronicle',
+      character: docStr(docs.characterName) || '',
       lastPlayed: now, created: now, gameId
     }, null, 2);
 
-    // Save game files
     if (IS_ELECTRON) {
       await window.chronicle.createGame({
         id: gameId,
-        name: docs.gameName || 'Untitled Chronicle',
-        character: docs.characterName || '',
+        name: docStr(docs.gameName) || 'Untitled Chronicle',
+        character: docStr(docs.characterName) || '',
       });
       const gameFiles = {
-        'world-state.txt':     docs.worldState     || '',
-        'character-sheet.txt': docs.characterSheet || '',
-        'npc-dossier.txt':     docs.npcDossier     || '',
-        'quest-log.txt':       docs.questLog       || '',
-        'city-ledger.txt':     docs.cityLedger     || '',
-        'session-summary.txt': docs.sessionSummary || '',
+        'world-state.txt':     docStr(docs.worldState),
+        'character-sheet.txt': docStr(docs.characterSheet),
+        'npc-dossier.txt':     docStr(docs.npcDossier),
+        'quest-log.txt':       docStr(docs.questLog),
+        'city-ledger.txt':     docStr(docs.cityLedger),
+        'session-summary.txt': docStr(docs.sessionSummary),
       };
       for (const [name, fileContent] of Object.entries(gameFiles)) {
         await window.chronicle.writeFile(gameId, name, fileContent);
@@ -1258,6 +1344,7 @@ async function finalizeInterview(reply, msgs) {
   } catch(e) {
     gen.remove();
     console.error('[Chronicle] finalizeInterview error:', e);
+    console.error('[Chronicle] Raw reply was:', reply);
     showError('Failed to create game: ' + e.message);
     document.getElementById('interview-send-btn').disabled = false;
   }
@@ -1288,6 +1375,7 @@ async function loadGame(gameId, preloadedDocs = null) {
   showScreen('game');
   stopAudio();
   activeGameId = gameId;
+  loadVoiceMap(); // restore per-game NPC voice assignments
   activeFileShas = {};
   messageHistory = [];
   document.getElementById('narration').innerHTML = `<div class="welcome"><span class="welcome-rune">✦</span><h2>Loading your chronicle</h2><p>Retrieving your world from the archive...</p></div>`;
@@ -1303,6 +1391,13 @@ async function loadGame(gameId, preloadedDocs = null) {
       const files = await window.chronicle.readAllFiles(gameId);
       for (const [name, fileContent] of Object.entries(files)) {
         loaded[name] = { content: fileContent, sha: null };
+      }
+      // Guard against ghost games with no world data
+      if (!loaded['world-state.txt']?.content && !loaded['message-history.json']?.content) {
+        await window.chronicle.deleteGame(gameId);
+        showError('That chronicle was empty and has been removed.');
+        showLibrary();
+        return;
       }
       // Load game metadata
       const game = await window.chronicle.getGame(gameId);
@@ -1866,11 +1961,78 @@ function toggleVoice() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// VOICE — ELEVENLABS TTS
 // ═══════════════════════════════════════════════════════════
-function stopAudio() {
-  if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
-  // No MediaSource needed for Kokoro WAV output
+// TTS — KOKORO (local) with browser speech fallback
+// ═══════════════════════════════════════════════════════════
+
+const KOKORO_ENDPOINT = 'http://localhost:5050';
+const KOKORO_VOICES   = [
+  'af_sky','af_bella','af_nicole','af_sarah','af_nova',
+  'am_adam','am_michael',
+  'bf_emma','bf_isabella',
+  'bm_george','bm_lewis'
+];
+
+// Voice assignments: { npcName: kokoroVoiceName }
+// Persisted in localStorage so assignments survive sessions
+let voiceMap = {};
+
+function voiceMapKey()    { return `ch_voice_map_${activeGameId}`; }
+function narratorVoiceKey() { return `ch_kokoro_voice_${activeGameId}`; }
+
+function getNarratorVoice() {
+  // Per-game voice, falling back to global default
+  return localStorage.getItem(narratorVoiceKey())
+      || localStorage.getItem('ch_kokoro_voice')
+      || 'bm_george';
+}
+
+function loadVoiceMap() {
+  voiceMap = JSON.parse(localStorage.getItem(voiceMapKey()) || '{}');
+}
+
+function saveVoiceMap() {
+  localStorage.setItem(voiceMapKey(), JSON.stringify(voiceMap));
+}
+
+// Assign a Kokoro voice to an NPC based on their description
+function assignVoice(name, desc) {
+  if (voiceMap[name]) return voiceMap[name];
+  const d = (desc || '').toLowerCase();
+  const usedVoices = new Set(Object.values(voiceMap));
+  const narratorVoice = getNarratorVoice();
+
+  // Separate voices by gender category
+  const femaleVoices  = ['af_bella','af_nicole','af_sarah','bf_emma','bf_isabella','af_sky','af_nova'];
+  const maleVoices    = ['am_adam','am_michael','bm_george','bm_lewis'];
+  const neutralVoices = ['af_sky','af_nova'];
+
+  let pool;
+  if (d.includes('female') || d.includes('woman') || d.includes('girl') || d.includes('she/her')) {
+    pool = femaleVoices;
+  } else if (d.includes('neutral') || d.includes('they/them')) {
+    pool = neutralVoices;
+  } else {
+    pool = maleVoices;
+  }
+
+  // Remove narrator voice and already used voices from pool
+  let available = pool.filter(v => v !== narratorVoice && !usedVoices.has(v));
+
+  // If all voices in pool are taken, allow reuse but still exclude narrator
+  if (available.length === 0) {
+    available = pool.filter(v => v !== narratorVoice);
+  }
+
+  // Last resort — use any voice except narrator
+  if (available.length === 0) {
+    available = KOKORO_VOICES.filter(v => v !== narratorVoice);
+  }
+
+  const voice = available[Math.floor(Math.random() * available.length)];
+  voiceMap[name] = voice;
+  saveVoiceMap();
+  return voice;
 }
 
 // ── Parse tagged GM response into segments ──────────────────
@@ -1880,25 +2042,103 @@ function parseSegments(text) {
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
-    // [N] narrator line
     const narratorMatch = line.match(/^\[N\]\s*(.+)$/);
     if (narratorMatch) { segments.push({ type: 'narrator', text: narratorMatch[1] }); continue; }
-    // [C:Name|desc] first appearance
     const charNewMatch = line.match(/^\[C:([^|\]]+)\|([^\]]+)\]\s*(.+)$/);
     if (charNewMatch) { segments.push({ type: 'character', name: charNewMatch[1].trim(), desc: charNewMatch[2].trim(), text: charNewMatch[3] }); continue; }
-    // [C:Name] known character
     const charMatch = line.match(/^\[C:([^\]]+)\]\s*(.+)$/);
-    if (charMatch) { segments.push({ type: 'character', name: charMatch[1].trim(), text: charMatch[2] }); continue; }
-    // Untagged — treat as narrator
+    if (charMatch) { segments.push({ type: 'character', name: charMatch[1].trim(), desc: '', text: charMatch[2] }); continue; }
     segments.push({ type: 'narrator', text: line });
   }
   return segments;
 }
 
-// ═══════════════════════════════════════════════════════════
-// TTS — Web Speech API (browser built-in, instant, no download)
-// ═══════════════════════════════════════════════════════════
+// ── Check if Kokoro server is available ─────────────────────
+async function kokoroAvailable() {
+  try {
+    const res = await fetch(`${KOKORO_ENDPOINT}/health`, { signal: AbortSignal.timeout(800) });
+    return res.ok;
+  } catch(e) { return false; }
+}
 
+// ── Speak a single segment via Kokoro ───────────────────────
+async function kokoroSpeak(text, voice) {
+  const res = await fetch(`${KOKORO_ENDPOINT}/tts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice, speed: 1.0 }),
+  });
+  if (!res.ok) throw new Error(`Kokoro TTS error: ${res.status}`);
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(url);
+    currentAudio = audio;
+    audio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; resolve(); };
+    audio.onerror = (e) => { URL.revokeObjectURL(url); currentAudio = null; reject(e); };
+    audio.play();
+  });
+}
+
+// ── Browser speech fallback ──────────────────────────────────
+function browserSpeak(text) {
+  return new Promise((resolve) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    const { voiceName } = getSettings();
+    utterance.voice = getVoice(voiceName);
+    utterance.rate  = 0.95;
+    utterance.onend = utterance.onerror = resolve;
+    speechSynthesis.speak(utterance);
+  });
+}
+
+// ── Main entry point ─────────────────────────────────────────
+let isSpeaking    = false;
+let speakQueue    = [];
+let speakAborted  = false;
+
+async function speakText(text) {
+  if (!text) return;
+  speakAborted = false;
+  const segments = parseSegments(text);
+  if (segments.length === 0) return;
+
+  const useKokoro = await kokoroAvailable();
+  const narratorVoice = getNarratorVoice();
+
+  document.getElementById('voice-btn').classList.add('speaking');
+  document.getElementById('input-hint').textContent = '🔊 Speaking... tap 🎤 to stop';
+
+  for (const seg of segments) {
+    if (speakAborted) break;
+    const voice = seg.type === 'narrator'
+      ? narratorVoice
+      : assignVoice(seg.name, seg.desc) || narratorVoice;
+
+    try {
+      if (useKokoro) {
+        await kokoroSpeak(seg.text, voice);
+      } else {
+        await browserSpeak(seg.text);
+      }
+    } catch(e) {
+      console.warn('[Chronicle] TTS error, falling back to browser:', e);
+      try { await browserSpeak(seg.text); } catch(e2) {}
+    }
+    if (speakAborted) break;
+  }
+
+  document.getElementById('voice-btn').classList.remove('speaking');
+  document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
+}
+
+function stopAudio() {
+  speakAborted = true;
+  if (currentAudio) { currentAudio.pause(); currentAudio.src = ''; currentAudio = null; }
+  speechSynthesis.cancel();
+}
+
+// ── Voice dropdown (browser voices for fallback) ─────────────
 function getVoice(name) {
   const voices = speechSynthesis.getVoices();
   if (!name) return voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
@@ -1915,68 +2155,33 @@ function populateVoiceDropdown(selectedName) {
   if (!selectedName && voices.length > 0) sel.value = voices[0].name;
 }
 
-function speakText(text) {
-  if (!text) return;
-  speechSynthesis.cancel();
-  // Strip speech tags — just read the plain text
-  const clean = text
-    .replace(/\[N\]\s*/g, '')
-    .replace(/\[C:[^\]]+\]\s*/g, '')
-    .trim();
-  if (!clean) return;
-
-  const { voiceName } = getSettings();
-  const utterance = new SpeechSynthesisUtterance(clean);
-  utterance.voice = getVoice(voiceName);
-  utterance.rate  = 0.95;
-  utterance.pitch = 1.0;
-
-  utterance.onstart = () => {
-    document.getElementById('voice-btn').classList.add('speaking');
-    document.getElementById('input-hint').textContent = '🔊 Speaking... tap 🎤 to stop';
-  };
-  utterance.onend = utterance.onerror = () => {
-    document.getElementById('voice-btn').classList.remove('speaking');
-    document.getElementById('input-hint').textContent = 'Tap 🎤 to speak · Enter to send';
-  };
-
-  speechSynthesis.speak(utterance);
-}
-
-function stopAudio() {
-  speechSynthesis.cancel();
-}
-
 function previewNarratorVoice() {
   const btn    = document.getElementById('preview-voice-btn');
   const status = document.getElementById('preview-status');
-
-  if (speechSynthesis.speaking) {
-    speechSynthesis.cancel();
+  if (currentAudio || speechSynthesis.speaking) {
+    stopAudio();
     btn.textContent = '▶ Preview';
     btn.style.background = 'var(--ember-dim)';
     status.textContent = '';
     return;
   }
-
-  const voiceName = document.getElementById('s-voice').value;
-  const utterance = new SpeechSynthesisUtterance(
-    'The fire burned low in the great hall. Outside, the wind moved through the trees like a warning no one had yet learned to read.'
-  );
-  utterance.voice = getVoice(voiceName);
-  utterance.rate  = 0.95;
-
+  const previewText = 'The fire burned low in the great hall. Outside, the wind moved through the trees like a warning no one had yet learned to read.';
+  const kokoroVoice = getNarratorVoice();
   btn.textContent = '■ Stop';
   btn.style.background = 'var(--ember)';
-  status.textContent = `Playing: ${voiceName || 'default'}`;
-
-  utterance.onend = utterance.onerror = () => {
-    btn.textContent = '▶ Preview';
-    btn.style.background = 'var(--ember-dim)';
-    status.textContent = '';
-  };
-
-  speechSynthesis.speak(utterance);
+  status.textContent = `Playing: ${kokoroVoice}`;
+  kokoroAvailable().then(available => {
+    if (available) {
+      kokoroSpeak(previewText, kokoroVoice)
+        .finally(() => { btn.textContent = '▶ Preview'; btn.style.background = 'var(--ember-dim)'; status.textContent = ''; });
+    } else {
+      const utterance = new SpeechSynthesisUtterance(previewText);
+      utterance.voice = getVoice(document.getElementById('s-voice').value);
+      utterance.rate  = 0.95;
+      utterance.onend = utterance.onerror = () => { btn.textContent = '▶ Preview'; btn.style.background = 'var(--ember-dim)'; status.textContent = ''; };
+      speechSynthesis.speak(utterance);
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════

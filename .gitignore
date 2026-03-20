@@ -1,0 +1,11 @@
+node_modules/
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+*.pyc
+kokoro-v1.0.onnx
+voices-v1.0.bin
+test_output.wav
+test_george.wav
+test_adam.wav

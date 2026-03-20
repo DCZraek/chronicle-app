@@ -772,8 +772,46 @@ body::before {
 // ═══════════════════════════════════════════════════════════
 const WINDOW_SIZE      = 10;  // raw exchanges kept in memory before considering compression
 const ACCENT_COLORS    = ['#8a3a2a','#2a5a8a','#3a7a3a','#7a3a7a','#7a6a2a','#2a6a7a','#8a6a3a','#4a3a8a'];
-const IS_ELECTRON      = typeof window.chronicle !== 'undefined';
+// ═══════════════════════════════════════════════════════════
+// API BRIDGE — replaces Electron's window.chronicle IPC
+// All storage calls now go through the Express REST API
+// ═══════════════════════════════════════════════════════════
 
+function getToken() { return localStorage.getItem('ch_token') || ''; }
+
+async function api(method, path, body = null) {
+  const opts = {
+    method,
+    headers: {
+      'Authorization': `Bearer ${getToken()}`,
+      'Content-Type': 'application/json',
+    },
+  };
+  if (body !== null) opts.body = JSON.stringify(body);
+  const res = await fetch('/api' + path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `API error ${res.status}`);
+  }
+  return res.json();
+}
+
+window.chronicle = {
+  listGames:              ()                         => api('GET',    '/games'),
+  getGame:                (id)                       => api('GET',    `/games/${id}`),
+  createGame:             (game)                     => api('POST',   '/games', game),
+  updateGameLastPlayed:   (id)                       => api('PATCH',  `/games/${id}/last-played`),
+  deleteGame:             (id)                       => api('DELETE', `/games/${id}`),
+  readFile:               (gameId, name)             => api('GET',    `/games/${gameId}/files/${name}`),
+  writeFile:              (gameId, name, content)    => api('POST',   `/games/${gameId}/files/${name}`, { content }),
+  readAllFiles:           (gameId)                   => api('GET',    `/games/${gameId}/files`),
+  getCompressionLog:      (gameId)                   => api('GET',    `/games/${gameId}/compression`),
+  appendCompressionEntry: (gameId, mechanical, literary) => api('POST', `/games/${gameId}/compression`, { mechanical, literary }),
+  getChronicleLog:        (gameId)                   => api('GET',    `/games/${gameId}/chronicle-log`),
+  appendChronicleEntry:   (gameId, entry)            => api('POST',   `/games/${gameId}/chronicle-log`, { entry }),
+};
+
+const IS_ELECTRON = true;
 const GM_SYSTEM_PROMPT = `You are the Game Master of a living, breathing fantasy world. You are a novelist first and a game master second. Your narration is literary, atmospheric, and immersive — rich with sensory detail, distinct character voices, and emotional weight. You never break the fourth wall. You never present numbered choices or menus. You never reference game mechanics, dice, stats, or systems. Everything the player experiences reads like a chapter in a novel.
 You end every response by describing the scene the player finds themselves in and letting silence hang — waiting for them to act. You never ask "what do you do." You simply leave the world open and alive around them.
 
@@ -2597,28 +2635,93 @@ window.addEventListener('DOMContentLoaded', () => {
       populateVoiceDropdown(voiceName);
     };
   }
-  // Also try immediately (some browsers load voices synchronously)
   setTimeout(() => {
     const { voiceName } = getSettings();
     populateVoiceDropdown(voiceName);
   }, 100);
 
+  // ── Token gate ─────────────────────────────────────────
+  // If no token is stored, show the token entry screen first
+  const storedToken = localStorage.getItem('ch_token');
+  if (!storedToken) {
+    showTokenScreen();
+    return;
+  }
+
+  bootIntoApp();
+});
+
+function showTokenScreen() {
+  // Build a simple token entry screen
+  const screen = document.createElement('div');
+  screen.id = 'screen-token';
+  screen.className = 'screen active';
+  screen.style.cssText = 'display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px; padding:40px;';
+  screen.innerHTML = `
+    <div style="text-align:center;">
+      <div style="font-family:'Cinzel',serif; font-size:1.4rem; color:var(--gold); letter-spacing:0.2em; margin-bottom:10px;">THE CHRONICLE</div>
+      <div style="font-size:0.85rem; color:var(--ash); font-style:italic;">Enter your access token to continue</div>
+    </div>
+    <div style="width:100%; max-width:420px; display:flex; flex-direction:column; gap:12px;">
+      <input
+        class="field-input"
+        type="password"
+        id="token-input"
+        placeholder="Paste your token here..."
+        autocomplete="off"
+        style="font-size:0.9rem;"
+      />
+      <button class="primary-btn" onclick="submitToken()">Enter the Chronicle</button>
+      <div id="token-error" style="text-align:center; font-size:0.8rem; color:#e06060; min-height:18px;"></div>
+    </div>
+  `;
+  document.body.appendChild(screen);
+  document.getElementById('token-input').focus();
+}
+
+async function submitToken() {
+  const input = document.getElementById('token-input');
+  const token = input.value.trim();
+  if (!token) return;
+
+  // Test the token by making a real API call
+  const errEl = document.getElementById('token-error');
+  errEl.textContent = 'Checking...';
+
+  try {
+    const res = await fetch('/api/games', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.status === 403) {
+      errEl.textContent = 'Invalid token. Check your .env file.';
+      return;
+    }
+    // Token works — store it and boot
+    localStorage.setItem('ch_token', token);
+    // Update the bridge to use the new token
+    window.TOKEN = token;
+    document.getElementById('screen-token').remove();
+    bootIntoApp();
+  } catch(e) {
+    errEl.textContent = 'Could not reach server. Is it running?';
+  }
+}
+
+function bootIntoApp() {
   const s = getSettings();
   const cfg = NARRATOR_PROVIDERS[s.provider] || NARRATOR_PROVIDERS.ollama;
   const needsKey = cfg.requiresKey && !s.anthropicKey;
   const neverConfigured = !localStorage.getItem('ch_provider');
   if (needsKey || neverConfigured) {
-    // First time or key missing — open settings on narrator tab
     document.getElementById('settings-back').style.display = 'none';
     switchSettingsTab('narrator');
-    // Pre-select saved provider if any
     const providerEl = document.getElementById('s-provider');
     if (providerEl) { providerEl.value = s.provider; onProviderChange(); }
     showScreen('settings');
   } else {
     showLibrary();
   }
-});
+}
 </script>
 </body>
 </html>

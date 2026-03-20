@@ -9,3 +9,4 @@ voices-v1.0.bin
 test_output.wav
 test_george.wav
 test_adam.wav
+.env

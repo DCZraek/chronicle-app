@@ -1,14 +1,14 @@
 const Database = require('better-sqlite3')
 const path = require('path')
 const fs = require('fs')
-const { app } = require('electron')
+const os = require('os')
 
 // ═══════════════════════════════════════════════════════════
 // STORAGE — Local SQLite database for Chronicle saves
 // Lives at ~/Chronicle/chronicle.db
 // ═══════════════════════════════════════════════════════════
 
-const DATA_DIR = path.join(app.getPath('home'), 'Chronicle')
+const DATA_DIR = path.join(os.homedir(), 'Chronicle')
 const DB_PATH  = path.join(DATA_DIR, 'chronicle.db')
 
 

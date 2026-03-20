@@ -50,15 +50,16 @@ app.get('/', (req, res) => {
 // Forwards audio requests to Kokoro running on localhost:5050
 // Auth required — this keeps the TTS endpoint locked too
 
-app.post('/api/tts', requireAuth, express.raw({ type: '*/*', limit: '10mb' }), (req, res) => {
+app.post('/api/tts', requireAuth, (req, res) => {
+  const body = JSON.stringify(req.body)
   const options = {
     hostname: 'localhost',
     port: 5050,
     path: '/tts',
     method: 'POST',
     headers: {
-      'Content-Type': req.headers['content-type'] || 'application/json',
-      'Content-Length': req.body.length
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
     }
   }
   const proxy = http.request(options, (kokoroRes) => {
@@ -66,7 +67,22 @@ app.post('/api/tts', requireAuth, express.raw({ type: '*/*', limit: '10mb' }), (
     kokoroRes.pipe(res)
   })
   proxy.on('error', () => res.status(503).json({ error: 'TTS unavailable' }))
-  proxy.write(req.body)
+  proxy.write(body)
+  proxy.end()
+})
+
+// ── TTS Health Proxy ──────────────────────────────────────
+app.get('/api/tts/health', requireAuth, (req, res) => {
+  const options = {
+    hostname: 'localhost',
+    port: 5050,
+    path: '/health',
+    method: 'GET',
+  }
+  const proxy = http.request(options, (kokoroRes) => {
+    res.status(kokoroRes.statusCode).json({ ok: kokoroRes.statusCode === 200 })
+  })
+  proxy.on('error', () => res.status(503).json({ ok: false }))
   proxy.end()
 })
 

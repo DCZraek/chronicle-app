@@ -1844,7 +1844,7 @@ function toggleVoice() {
 // TTS — KOKORO (local) with browser speech fallback
 // ═══════════════════════════════════════════════════════════
 
-const KOKORO_ENDPOINT = 'http://localhost:5050';
+const KOKORO_ENDPOINT = '/api/tts';
 const KOKORO_VOICES   = [
   'af_sky','af_bella','af_nicole','af_sarah','af_nova',
   'am_adam','am_michael',
@@ -1935,16 +1935,22 @@ function parseSegments(text) {
 // ── Check if Kokoro server is available ─────────────────────
 async function kokoroAvailable() {
   try {
-    const res = await fetch(`${KOKORO_ENDPOINT}/health`, { signal: AbortSignal.timeout(800) });
+    const res = await fetch(`${KOKORO_ENDPOINT}/health`, {
+      headers: { 'Authorization': `Bearer ${getToken()}` },
+      signal: AbortSignal.timeout(800)
+    });
     return res.ok;
   } catch(e) { return false; }
 }
 
 // ── Speak a single segment via Kokoro ───────────────────────
 async function kokoroSpeak(text, voice) {
-  const res = await fetch(`${KOKORO_ENDPOINT}/tts`, {
+  const res = await fetch(KOKORO_ENDPOINT, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${getToken()}`,
+    },
     body: JSON.stringify({ text, voice, speed: 1.0 }),
   });
   if (!res.ok) throw new Error(`Kokoro TTS error: ${res.status}`);

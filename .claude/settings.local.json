@@ -4,7 +4,10 @@
       "Bash(node -e \":*)",
       "Bash(node tests/mechanical.test.js)",
       "Bash(node -e \"const h = require\\(''./heuristics''\\); console.log\\(''exports:'', Object.keys\\(h\\).join\\('', ''\\)\\)\")",
-      "Bash(timeout 3 node chronicle-server.js)"
+      "Bash(timeout 3 node chronicle-server.js)",
+      "Bash(node -e \"console.log\\(process.version\\)\")",
+      "Bash(node tests/prompts.test.js)",
+      "Bash(node -e \"const a = require\\(''./agents''\\); console.log\\(''exports:'', Object.keys\\(a\\).join\\('', ''\\)\\)\")"
     ]
   }
 }

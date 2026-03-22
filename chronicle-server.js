@@ -346,7 +346,7 @@ api.post('/games/:id/sync-log',       (req, res) => {
   storage.appendSyncEntry(req.params.id, req.body)
   res.json({ ok: true })
 })
-api.get ('/games/:id/sync-log',       (req, res) => res.json(storage.getRecentSyncLog(req.params.id, req.query.limit)))
+api.get ('/games/:id/sync-log',       (req, res) => res.json(storage.getRecentSyncLog(req.params.id, req.query.n || req.query.limit || 5)))
 
 // ── Phase 1 — Tags ────────────────────────────────────────
 api.get   ('/games/:id/tags',                       (req, res) => res.json(storage.getTags(req.params.id)))
@@ -445,20 +445,22 @@ api.post('/narrate', async (req, res) => {
 
   try {
     // Step 1: Build ambient index and mechanics state
+    console.log('[Narrate] Step 1: Building context...')
     const ambientIndex   = heuristics.buildAmbientIndex(gameId)
     const mechanics      = storage.getGameMechanics(gameId)
-    const effectiveRanks = mechanics ? heuristics.calculateEffectiveRanks(mechanics) : { combat: 10, social: 10, magic: 0 }
+    const effectiveRanks = heuristics.calculateEffectiveRanks(gameId)  // takes gameId, not mechanics object
 
     const mechanicsState = mechanics
-      ? `[MECHANICS STATE]\ncombat_rank: ${effectiveRanks.combat} (base: ${mechanics.player_combat_rank})\n` +
-        `social_rank: ${effectiveRanks.social} (base: ${mechanics.player_social_rank})\n` +
-        `magic_rank: ${effectiveRanks.magic} (base: ${mechanics.player_magic_rank})\n` +
+      ? `[MECHANICS STATE]\ncombat_rank: ${effectiveRanks.effective.combat} (base: ${effectiveRanks.base.combat})\n` +
+        `social_rank: ${effectiveRanks.effective.social} (base: ${effectiveRanks.base.social})\n` +
+        `magic_rank: ${effectiveRanks.effective.magic} (base: ${effectiveRanks.base.magic})\n` +
         `wounds: ${mechanics.wound_slot_1}/${mechanics.wound_slot_2}/${mechanics.wound_slot_3}\n` +
         `wound_penalty: ${mechanics.wound_penalty}\n` +
         `coin: ${mechanics.coin} | rations: ${mechanics.rations} | ammo: ${mechanics.ammunition}`
       : ''
 
     // Step 2: Assemble first-call system prompt (narrator prompt + ambient index + mechanics)
+    console.log('[Narrate] Step 2: Assembling context messages...')
     const systemWithContext = NARRATOR_PROMPT
       + (ambientIndex   ? '\n\n' + ambientIndex   : '')
       + (mechanicsState ? '\n\n' + mechanicsState : '')
@@ -476,9 +478,11 @@ api.post('/narrate', async (req, res) => {
     contextMessages.push(...messages)
 
     // Step 3: First narrator call — decides DIRECT or NEEDS_AGENTS
+    console.log(`[Narrate] Step 3: Calling narrator (provider=${providerName}, model=${modelName}, messages=${contextMessages.length})...`)
     const firstResponse = await callNarratorProvider(
       systemWithContext, contextMessages, providerName, modelName, apiKey, endpoint, maxTokens
     )
+    console.log(`[Narrate] Step 3 done: ${firstResponse.slice(0, 60).replace(/\n/g, ' ')}...`)
 
     // Step 4: Route based on response prefix
     let narrativeResponse
@@ -486,14 +490,17 @@ api.post('/narrate', async (req, res) => {
 
     if (firstResponse.trimStart().startsWith('[NEEDS_AGENTS]')) {
       routing = 'NEEDS_AGENTS'
+      console.log('[Narrate] Step 4: Routing to NEEDS_AGENTS...')
       const intent = agents.parseIntent(firstResponse)
 
       if (intent) {
         // Step 5: Run agents in parallel, build brief
+        console.log('[Narrate] Step 5: Running agents in parallel...')
         const agentResponses = await agents.runAgents(gameId, intent)
         const brief = agents.buildNarratorBrief(gameId, agentResponses, ambientIndex)
 
         // Step 6: Second narrator call with brief
+        console.log('[Narrate] Step 6: Second narrator call with brief...')
         const briefMessages = [
           ...contextMessages,
           { role: 'assistant', content: firstResponse },
@@ -504,15 +511,18 @@ api.post('/narrate', async (req, res) => {
         )
       } else {
         // Intent parse failed — treat first response as direct narrative
+        console.log('[Narrate] Step 4: NEEDS_AGENTS intent parse failed — falling back to DIRECT')
         narrativeResponse = firstResponse
         routing = 'DIRECT'
       }
     } else {
       // DIRECT path — first response is the complete narrative
+      console.log('[Narrate] Step 4: Routing DIRECT.')
       narrativeResponse = firstResponse
     }
 
     // Step 7: Extract SCENE_TAGS block from narrative
+    console.log('[Narrate] Step 7: Extracting SCENE_TAGS...')
     const sceneTagsStart = narrativeResponse.indexOf('[SCENE_TAGS]')
     let narrativeOnly  = narrativeResponse
     let sceneTagsBlock = ''
@@ -526,16 +536,19 @@ api.post('/narrate', async (req, res) => {
     let syncTriggered = false
     if (sceneTagsBlock) {
       syncTriggered = true
+      console.log('[Narrate] Step 8: Triggering sync pass in background...')
       agents.runSyncPass(gameId, narrativeResponse, sceneTagsBlock).catch(err => {
-        console.error('[narrate] Sync pass error:', err.message)
+        console.error('[Narrate] Sync pass error:', err.message)
       })
     }
 
+    console.log(`[Narrate] Done. routing=${routing}, syncTriggered=${syncTriggered}, narrativeOnly length=${narrativeOnly.length}`)
     res.json({ response: narrativeResponse, narrativeOnly, sceneTagsBlock, routing, syncTriggered })
 
-  } catch (e) {
-    console.error('[narrate] Error:', e.message)
-    res.status(500).json({ error: e.message || 'Narrate failed' })
+  } catch (err) {
+    console.error('[Narrate] ERROR:', err.message)
+    console.error('[Narrate] STACK:', err.stack)
+    res.status(500).json({ error: err.message, stack: err.stack })
   }
 })
 

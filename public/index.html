@@ -814,6 +814,86 @@ window.chronicle = {
     apiKey:   settings.anthropicKey,
     endpoint: settings.endpoint,
   }),
+
+  // Tags
+  getTags:          (gId)        => api('GET',    `/games/${gId}/tags`),
+  getTag:           (gId, tagId) => api('GET',    `/games/${gId}/tags/${tagId}`),
+  upsertTag:        (gId, data)  => api('POST',   `/games/${gId}/tags`, data),
+  deleteTag:        (gId, tagId) => api('DELETE', `/games/${gId}/tags/${tagId}`),
+  getTagByAlias:    (gId, alias) => api('GET',    `/games/${gId}/tags/alias/${alias}`),
+  getAmbientIndex:  (gId)        => api('GET',    `/games/${gId}/ambient-index`),
+
+  // Tag Aliases
+  getAliases:  (gId, tagId)        => api('GET',    `/games/${gId}/tags/${tagId}/aliases`),
+  addAlias:    (gId, tagId, data)  => api('POST',   `/games/${gId}/tags/${tagId}/aliases`, data),
+  deleteAlias: (gId, aliasId)      => api('DELETE', `/games/${gId}/aliases/${aliasId}`),
+
+  // Tag Relationships
+  getAllRelationships: (gId)        => api('GET',    `/games/${gId}/relationships`),
+  getRelationships:   (gId, tagId) => api('GET',    `/games/${gId}/tags/${tagId}/relationships`),
+  upsertRelationship: (gId, data)  => api('POST',   `/games/${gId}/relationships`, data),
+  deleteRelationship: (gId, id)    => api('DELETE', `/games/${gId}/relationships/${id}`),
+  getTagMap:          (gId, data)  => api('POST',   `/games/${gId}/tag-map`, data),
+
+  // Pending Tags
+  getPendingTags:    (gId)      => api('GET',    `/games/${gId}/pending-tags`),
+  addPendingTag:     (gId, data)=> api('POST',   `/games/${gId}/pending-tags`, data),
+  confirmPendingTag: (gId, id)  => api('POST',   `/games/${gId}/pending-tags/${id}/confirm`),
+  dismissPendingTag: (gId, id)  => api('DELETE', `/games/${gId}/pending-tags/${id}`),
+
+  // Pending Relationships
+  getPendingRelationships:    (gId)      => api('GET',    `/games/${gId}/pending-relationships`),
+  addPendingRelationship:     (gId, data)=> api('POST',   `/games/${gId}/pending-relationships`, data),
+  confirmPendingRelationship: (gId, id)  => api('POST',   `/games/${gId}/pending-relationships/${id}/confirm`),
+  dismissPendingRelationship: (gId, id)  => api('DELETE', `/games/${gId}/pending-relationships/${id}`),
+
+  // Game State (mechanics)
+  getGameMechanics:    (gId)      => api('GET',   `/games/${gId}/game-state`),
+  upsertGameMechanics: (gId, data)=> api('PATCH', `/games/${gId}/game-state`, data),
+
+  // Skill Ranks
+  getSkillRanks:   (gId)       => api('GET',  `/games/${gId}/skills`),
+  getSkillRank:    (gId, name) => api('GET',  `/games/${gId}/skills/${name}`),
+  upsertSkillRank: (gId, data) => api('POST', `/games/${gId}/skills`, data),
+
+  // Difficulty Tracker
+  getDifficultyTracker:    (gId)      => api('GET',   `/games/${gId}/difficulty`),
+  upsertDifficultyTracker: (gId, data)=> api('PATCH', `/games/${gId}/difficulty`, data),
+
+  // Environmental State
+  getEnvironmentalState:    (gId)      => api('GET',   `/games/${gId}/environment`),
+  upsertEnvironmentalState: (gId, data)=> api('PATCH', `/games/${gId}/environment`, data),
+
+  // Milestones
+  getMilestones: (gId)      => api('GET',  `/games/${gId}/milestones`),
+  addMilestone:  (gId, data)=> api('POST', `/games/${gId}/milestones`, data),
+
+  // Companions
+  getCompanionStates:   (gId)        => api('GET',  `/games/${gId}/companions`),
+  getCompanionState:    (gId, tagId) => api('GET',  `/games/${gId}/companions/${tagId}`),
+  upsertCompanionState: (gId, data)  => api('POST', `/games/${gId}/companions`, data),
+
+  // Consequences
+  getOpenConsequences: (gId)      => api('GET',    `/games/${gId}/consequences`),
+  addConsequence:      (gId, data)=> api('POST',   `/games/${gId}/consequences`, data),
+  surfaceConsequence:  (gId, id)  => api('PATCH',  `/games/${gId}/consequences/${id}/surface`),
+  dismissConsequence:  (gId, id)  => api('DELETE', `/games/${gId}/consequences/${id}`),
+
+  // Pending Flags
+  getPendingFlags: (gId)      => api('GET',    `/games/${gId}/flags`),
+  addPendingFlag:  (gId, data)=> api('POST',   `/games/${gId}/flags`, data),
+  dismissFlag:     (gId, id)  => api('DELETE', `/games/${gId}/flags/${id}`),
+
+  // Faction Heat
+  getFactionHeat:    (gId)      => api('GET',  `/games/${gId}/faction-heat`),
+  upsertFactionHeat: (gId, data)=> api('POST', `/games/${gId}/faction-heat`, data),
+
+  // Knowledge Scope
+  getKnowledgeScope:    (gId, tagId) => api('GET',  `/games/${gId}/knowledge-scope/${tagId}`),
+  upsertKnowledgeScope: (gId, data)  => api('POST', `/games/${gId}/knowledge-scope`, data),
+
+  // Sync Log
+  getRecentSyncLog: (gId, n) => api('GET', `/games/${gId}/sync-log?n=${n || 5}`),
 };
 
 const GM_SYSTEM_PROMPT = `You are the Game Master of a living, breathing fantasy world. You are a novelist first and a game master second. Your narration is literary, atmospheric, and immersive — rich with sensory detail, distinct character voices, and emotional weight. You never break the fourth wall. You never present numbered choices or menus. You never reference game mechanics, dice, stats, or systems. Everything the player experiences reads like a chapter in a novel.

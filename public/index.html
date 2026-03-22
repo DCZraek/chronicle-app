@@ -807,6 +807,13 @@ window.chronicle = {
   appendCompressionEntry: (gameId, mechanical, literary) => api('POST', `/games/${gameId}/compression`, { mechanical, literary }),
   getChronicleLog:        (gameId)                   => api('GET',    `/games/${gameId}/chronicle-log`),
   appendChronicleEntry:   (gameId, entry)            => api('POST',   `/games/${gameId}/chronicle-log`, { entry }),
+  sendNarratorMessage:    (gameId, messages, compressionLog, settings) => api('POST', '/narrate', {
+    gameId, messages, compressionLog,
+    provider: settings.provider,
+    model:    settings.model,
+    apiKey:   settings.anthropicKey,
+    endpoint: settings.endpoint,
+  }),
 };
 
 const GM_SYSTEM_PROMPT = `You are the Game Master of a living, breathing fantasy world. You are a novelist first and a game master second. Your narration is literary, atmospheric, and immersive — rich with sensory detail, distinct character voices, and emotional weight. You never break the fourth wall. You never present numbered choices or menus. You never reference game mechanics, dice, stats, or systems. Everything the player experiences reads like a chapter in a novel.
@@ -1465,14 +1472,20 @@ async function sendMessage() {
   setThinking(true);
   const typing = appendTyping();
   try {
-    // Build context: world seed + compression log + recent window
-    const context = buildContext();
-    const reply = await callClaude(context, GM_SYSTEM_PROMPT, 1024);
+    const settings = getSettings();
+    const data = await window.chronicle.sendNarratorMessage(
+      activeGameId,
+      buildContext(),
+      compressionLog,
+      settings
+    );
     typing.remove();
-    appendMessage('gm', reply);
-    messageHistory.push({ role: 'assistant', content: reply });
+    // Display narrative only (SCENE_TAGS stripped for player view)
+    appendMessage('gm', data.narrativeOnly);
+    // Store full response (with SCENE_TAGS) in history for narrator context
+    messageHistory.push({ role: 'assistant', content: data.response });
     updateCounter();
-    speakText(reply);
+    speakText(data.narrativeOnly);
 
     // Auto-save every 5 player messages
     const playerCount = messageHistory.filter(m =>
@@ -1483,7 +1496,7 @@ async function sendMessage() {
     if (playerCount % 5 === 0) saveGame().catch(() => {});
 
     // Ask Claude if now is a good time to compress (runs silently in background)
-    considerCompression(reply).catch(() => {});
+    considerCompression(data.response).catch(() => {});
 
   } catch(e) {
     typing.remove();

@@ -5,13 +5,16 @@
 // ═══════════════════════════════════════════════════════════
 
 require('dotenv').config()
-const express = require('express')
-const cors    = require('cors')
-const path    = require('path')
-const http    = require('http')
+const express   = require('express')
+const cors      = require('cors')
+const path      = require('path')
+const http      = require('http')
+const fs        = require('fs')
 
-const storage = require('./storage')
-const app     = express()
+const storage   = require('./storage')
+const agents    = require('./agents')
+const heuristics = require('./heuristics')
+const app       = express()
 
 const PORT  = process.env.PORT || 3000
 const TOKEN = process.env.CHRONICLE_TOKEN
@@ -19,6 +22,93 @@ const TOKEN = process.env.CHRONICLE_TOKEN
 if (!TOKEN) {
   console.error('ERROR: CHRONICLE_TOKEN not set in .env — server will not start.')
   process.exit(1)
+}
+
+let NARRATOR_PROMPT = ''
+try {
+  NARRATOR_PROMPT = fs.readFileSync(path.join(__dirname, 'prompts/narrator_prompt.txt'), 'utf8')
+  console.log('Narrator prompt loaded.')
+} catch (e) {
+  console.warn('Warning: narrator_prompt.txt not found — narrator calls will use empty system prompt')
+}
+
+// ═══════════════════════════════════════════════════════════
+// NARRATOR PROVIDER HELPERS
+// ═══════════════════════════════════════════════════════════
+
+async function callAnthropicNarrator(systemPrompt, messages, model, apiKey, maxTokens) {
+  const body = {
+    model:      model || 'claude-opus-4-6',
+    max_tokens: maxTokens,
+    system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+    messages
+  }
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:  'POST',
+    headers: {
+      'x-api-key':        apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta':   'extended-cache-ttl-2025-04-11',
+      'content-type':     'application/json'
+    },
+    body: JSON.stringify(body)
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error?.message || `Anthropic API error ${res.status}`)
+  }
+  const data = await res.json()
+  return data.content[0].text
+}
+
+async function callOllamaNarrator(systemPrompt, messages, model, endpoint, maxTokens) {
+  const res = await fetch(`${endpoint || 'http://localhost:11434'}/api/chat`, {
+    method:  'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model:   model || 'llama3.1:8b',
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      stream:  false,
+      options: { num_predict: maxTokens, temperature: 0.7 }
+    })
+  })
+  if (!res.ok) throw new Error(`Ollama error ${res.status}`)
+  const data = await res.json()
+  return data.message?.content || ''
+}
+
+async function callCustomNarrator(systemPrompt, messages, model, endpoint, apiKey, maxTokens) {
+  const headers = { 'content-type': 'application/json' }
+  if (apiKey) headers['authorization'] = `Bearer ${apiKey}`
+  const res = await fetch(`${endpoint}/v1/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      messages: [{ role: 'system', content: systemPrompt }, ...messages]
+    })
+  })
+  if (!res.ok) throw new Error(`Custom provider error ${res.status}`)
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content || ''
+}
+
+async function callNarratorProvider(systemPrompt, messages, provider, model, apiKey, endpoint, maxTokens = 2048, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      if (provider === 'anthropic') {
+        return await callAnthropicNarrator(systemPrompt, messages, model, apiKey, maxTokens)
+      } else if (provider === 'ollama') {
+        return await callOllamaNarrator(systemPrompt, messages, model, endpoint, maxTokens)
+      } else {
+        return await callCustomNarrator(systemPrompt, messages, model, endpoint, apiKey, maxTokens)
+      }
+    } catch (e) {
+      if (attempt === retries) throw e
+      await new Promise(r => setTimeout(r, 1000 * attempt))
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -334,6 +424,120 @@ api.post('/games/:id/faction-heat',   (req, res) => { storage.upsertFactionHeat(
 // ── Phase 1 — Knowledge Scope ─────────────────────────────
 api.get ('/games/:id/knowledge-scope/:tagId', (req, res) => res.json(storage.getKnowledgeScope(req.params.id, req.params.tagId)))
 api.post('/games/:id/knowledge-scope',        (req, res) => { storage.upsertKnowledgeScope(req.params.id, req.body); res.json({ ok: true }) })
+
+// ── Phase 4 — Narrate ─────────────────────────────────────
+// Main game loop endpoint. Handles one complete player exchange:
+// 1. Build ambient index + mechanics context
+// 2. First narrator call → DIRECT or NEEDS_AGENTS
+// 3. If NEEDS_AGENTS: run agents, assemble brief, second call
+// 4. Parse SCENE_TAGS, trigger sync pass in background
+// 5. Return { response, narrativeOnly, sceneTagsBlock, routing, syncTriggered }
+
+api.post('/narrate', async (req, res) => {
+  const { gameId, messages, compressionLog, provider, model, apiKey, endpoint } = req.body
+
+  if (!gameId)                                     return res.status(400).json({ error: 'gameId required' })
+  if (!Array.isArray(messages) || !messages.length) return res.status(400).json({ error: 'messages required' })
+
+  const providerName = provider || 'anthropic'
+  const modelName    = model    || 'claude-opus-4-6'
+  const maxTokens    = 2048
+
+  try {
+    // Step 1: Build ambient index and mechanics state
+    const ambientIndex   = heuristics.buildAmbientIndex(gameId)
+    const mechanics      = storage.getGameMechanics(gameId)
+    const effectiveRanks = mechanics ? heuristics.calculateEffectiveRanks(mechanics) : { combat: 10, social: 10, magic: 0 }
+
+    const mechanicsState = mechanics
+      ? `[MECHANICS STATE]\ncombat_rank: ${effectiveRanks.combat} (base: ${mechanics.player_combat_rank})\n` +
+        `social_rank: ${effectiveRanks.social} (base: ${mechanics.player_social_rank})\n` +
+        `magic_rank: ${effectiveRanks.magic} (base: ${mechanics.player_magic_rank})\n` +
+        `wounds: ${mechanics.wound_slot_1}/${mechanics.wound_slot_2}/${mechanics.wound_slot_3}\n` +
+        `wound_penalty: ${mechanics.wound_penalty}\n` +
+        `coin: ${mechanics.coin} | rations: ${mechanics.rations} | ammo: ${mechanics.ammunition}`
+      : ''
+
+    // Step 2: Assemble first-call system prompt (narrator prompt + ambient index + mechanics)
+    const systemWithContext = NARRATOR_PROMPT
+      + (ambientIndex   ? '\n\n' + ambientIndex   : '')
+      + (mechanicsState ? '\n\n' + mechanicsState : '')
+
+    // Prepend compression log summary as context seed if present
+    const contextMessages = []
+    if (compressionLog && compressionLog.length > 0) {
+      const recent = compressionLog[compressionLog.length - 1]
+      const summary = [recent.mechanical, recent.literary].filter(Boolean).join('\n\n')
+      if (summary) {
+        contextMessages.push({ role: 'user',      content: `[SESSION SUMMARY]\n${summary}` })
+        contextMessages.push({ role: 'assistant', content: '[Acknowledged. Continuing from here.]' })
+      }
+    }
+    contextMessages.push(...messages)
+
+    // Step 3: First narrator call — decides DIRECT or NEEDS_AGENTS
+    const firstResponse = await callNarratorProvider(
+      systemWithContext, contextMessages, providerName, modelName, apiKey, endpoint, maxTokens
+    )
+
+    // Step 4: Route based on response prefix
+    let narrativeResponse
+    let routing = 'DIRECT'
+
+    if (firstResponse.trimStart().startsWith('[NEEDS_AGENTS]')) {
+      routing = 'NEEDS_AGENTS'
+      const intent = agents.parseIntent(firstResponse)
+
+      if (intent) {
+        // Step 5: Run agents in parallel, build brief
+        const agentResponses = await agents.runAgents(gameId, intent)
+        const brief = agents.buildNarratorBrief(gameId, agentResponses, ambientIndex)
+
+        // Step 6: Second narrator call with brief
+        const briefMessages = [
+          ...contextMessages,
+          { role: 'assistant', content: firstResponse },
+          { role: 'user',      content: brief }
+        ]
+        narrativeResponse = await callNarratorProvider(
+          NARRATOR_PROMPT, briefMessages, providerName, modelName, apiKey, endpoint, maxTokens
+        )
+      } else {
+        // Intent parse failed — treat first response as direct narrative
+        narrativeResponse = firstResponse
+        routing = 'DIRECT'
+      }
+    } else {
+      // DIRECT path — first response is the complete narrative
+      narrativeResponse = firstResponse
+    }
+
+    // Step 7: Extract SCENE_TAGS block from narrative
+    const sceneTagsStart = narrativeResponse.indexOf('[SCENE_TAGS]')
+    let narrativeOnly  = narrativeResponse
+    let sceneTagsBlock = ''
+
+    if (sceneTagsStart !== -1) {
+      narrativeOnly  = narrativeResponse.slice(0, sceneTagsStart).trim()
+      sceneTagsBlock = narrativeResponse.slice(sceneTagsStart)
+    }
+
+    // Step 8: Trigger sync pass in background (non-blocking — runs during TTS audio)
+    let syncTriggered = false
+    if (sceneTagsBlock) {
+      syncTriggered = true
+      agents.runSyncPass(gameId, narrativeResponse, sceneTagsBlock).catch(err => {
+        console.error('[narrate] Sync pass error:', err.message)
+      })
+    }
+
+    res.json({ response: narrativeResponse, narrativeOnly, sceneTagsBlock, routing, syncTriggered })
+
+  } catch (e) {
+    console.error('[narrate] Error:', e.message)
+    res.status(500).json({ error: e.message || 'Narrate failed' })
+  }
+})
 
 // ── Mount all API routes under /api ───────────────────────
 app.use('/api', api)

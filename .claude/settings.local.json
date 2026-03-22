@@ -7,7 +7,12 @@
       "Bash(timeout 3 node chronicle-server.js)",
       "Bash(node -e \"console.log\\(process.version\\)\")",
       "Bash(node tests/prompts.test.js)",
-      "Bash(node -e \"const a = require\\(''./agents''\\); console.log\\(''exports:'', Object.keys\\(a\\).join\\('', ''\\)\\)\")"
+      "Bash(node -e \"const a = require\\(''./agents''\\); console.log\\(''exports:'', Object.keys\\(a\\).join\\('', ''\\)\\)\")",
+      "Bash(timeout 8 node chronicle-server.js)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill /F /PID 13148 sleep 2 netstat -ano)",
+      "Bash(cmd /c 'taskkill /F /PID 13148' sleep 2 netstat -ano)",
+      "Bash(cmd /c taskkill /F /PID 13148)"
     ]
   }
 }

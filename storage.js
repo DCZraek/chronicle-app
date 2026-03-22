@@ -95,6 +95,9 @@ db.exec(`
     first_appeared    TEXT DEFAULT '',
     notes             TEXT DEFAULT '',
     updated_at        TEXT NOT NULL,
+    disposition       INTEGER DEFAULT 0,
+    loyalty           INTEGER DEFAULT 50,
+    awareness         TEXT DEFAULT 'unaware',
     FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
   );
 
@@ -153,6 +156,8 @@ db.exec(`
   );
 
   CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_game_name ON locations(game_id, name);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_factions_game_name ON factions(game_id, name);
 
   CREATE TABLE IF NOT EXISTS factions (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -486,7 +491,248 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chronicle_log_game ON chronicle_log(game_id);
   CREATE INDEX IF NOT EXISTS idx_compression_log_game ON compression_log(game_id);
 
+  -- ─── Phase 1 New Tables ──────────────────────────────────
+
+  CREATE TABLE IF NOT EXISTS tags (
+    id              TEXT NOT NULL,
+    game_id         TEXT NOT NULL,
+    tag_type        TEXT NOT NULL,
+    canonical_name  TEXT NOT NULL,
+    status          TEXT DEFAULT 'active',
+    confirmed       INTEGER DEFAULT 1,
+    relevance_score INTEGER DEFAULT 50,
+    entity_tier     TEXT DEFAULT 'human',
+    combat_rank     INTEGER DEFAULT 0,
+    social_rank     INTEGER DEFAULT 0,
+    magic_rank      INTEGER DEFAULT 0,
+    description     TEXT DEFAULT '',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (id, game_id),
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS tag_aliases (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    tag_id   TEXT NOT NULL,
+    game_id  TEXT NOT NULL,
+    alias    TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS tag_relationships (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id          TEXT NOT NULL,
+    tag_id_a         TEXT NOT NULL,
+    tag_id_b         TEXT NOT NULL,
+    relationship     TEXT NOT NULL,
+    context_note     TEXT DEFAULT '',
+    strength         TEXT DEFAULT 'strong',
+    confirmed        INTEGER DEFAULT 1,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS pending_tags (
+    id              TEXT NOT NULL,
+    game_id         TEXT NOT NULL,
+    tag_type        TEXT NOT NULL,
+    canonical_name  TEXT NOT NULL,
+    description     TEXT DEFAULT '',
+    proposed_by     TEXT DEFAULT 'narrator',
+    created_at      TEXT NOT NULL,
+    PRIMARY KEY (id, game_id),
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS pending_relationships (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id      TEXT NOT NULL,
+    tag_id_a     TEXT NOT NULL,
+    tag_id_b     TEXT NOT NULL,
+    relationship TEXT NOT NULL,
+    context_note TEXT DEFAULT '',
+    proposed_by  TEXT DEFAULT 'narrator',
+    created_at   TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS game_mechanics (
+    game_id                    TEXT PRIMARY KEY,
+    player_combat_rank         INTEGER DEFAULT 10,
+    player_social_rank         INTEGER DEFAULT 10,
+    player_magic_rank          INTEGER DEFAULT 0,
+    player_effective_combat    INTEGER DEFAULT 10,
+    player_effective_social    INTEGER DEFAULT 10,
+    player_effective_magic     INTEGER DEFAULT 0,
+    wound_slot_1               TEXT DEFAULT 'empty',
+    wound_slot_2               TEXT DEFAULT 'empty',
+    wound_slot_3               TEXT DEFAULT 'empty',
+    wound_penalty              INTEGER DEFAULT 0,
+    exhaustion                 TEXT DEFAULT 'none',
+    hunger                     TEXT DEFAULT 'none',
+    essence_current            INTEGER DEFAULT 0,
+    essence_max                INTEGER DEFAULT 0,
+    coin                       INTEGER DEFAULT 0,
+    rations                    INTEGER DEFAULT 0,
+    ammunition                 INTEGER DEFAULT 0,
+    global_notoriety           INTEGER DEFAULT 0,
+    updated_at                 TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS skill_ranks (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id        TEXT NOT NULL,
+    skill_name     TEXT NOT NULL,
+    rank           INTEGER DEFAULT 0,
+    ceiling        INTEGER DEFAULT 40,
+    activity_count INTEGER DEFAULT 0,
+    updated_at     TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS difficulty_tracker (
+    game_id                        TEXT PRIMARY KEY,
+    combat_since_wound             INTEGER DEFAULT 0,
+    social_since_setback           INTEGER DEFAULT 0,
+    exchanges_since_major_threat   INTEGER DEFAULT 0,
+    consecutive_successes          INTEGER DEFAULT 0,
+    exchanges_since_challenge      INTEGER DEFAULT 0,
+    magic_since_cost               INTEGER DEFAULT 0,
+    required_encounter_rank        INTEGER DEFAULT 0,
+    wound_threshold                INTEGER DEFAULT 3,
+    setback_threshold              INTEGER DEFAULT 3,
+    threat_threshold               INTEGER DEFAULT 6,
+    success_threshold              INTEGER DEFAULT 4,
+    challenge_threshold            INTEGER DEFAULT 6,
+    magic_cost_threshold           INTEGER DEFAULT 3,
+    escalation_rate                INTEGER DEFAULT 3,
+    active_directives              TEXT DEFAULT '[]',
+    updated_at                     TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS environmental_state (
+    game_id        TEXT PRIMARY KEY,
+    current_day    INTEGER DEFAULT 1,
+    season         TEXT DEFAULT 'spring',
+    time_of_day    TEXT DEFAULT 'morning',
+    weather        TEXT DEFAULT 'clear',
+    temperature    TEXT DEFAULT 'mild',
+    visibility     TEXT DEFAULT 'full',
+    updated_at     TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS milestone_log (
+    id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id                      TEXT NOT NULL,
+    milestone_type               TEXT NOT NULL,
+    rank_type                    TEXT NOT NULL,
+    description                  TEXT NOT NULL,
+    validated                    INTEGER DEFAULT 1,
+    exchange_number              INTEGER DEFAULT 0,
+    exchanges_since_last_combat  INTEGER DEFAULT 0,
+    exchanges_since_last_social  INTEGER DEFAULT 0,
+    exchanges_since_last_magic   INTEGER DEFAULT 0,
+    created_at                   TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS companion_state (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id               TEXT NOT NULL,
+    tag_id                TEXT NOT NULL,
+    combat_rank           INTEGER DEFAULT 0,
+    social_rank           INTEGER DEFAULT 0,
+    loyalty               INTEGER DEFAULT 50,
+    condition             TEXT DEFAULT 'healthy',
+    morale                TEXT DEFAULT 'normal',
+    exchanges_in_combat   INTEGER DEFAULT 0,
+    exchanges_at_base     INTEGER DEFAULT 0,
+    exchanges_traveling   INTEGER DEFAULT 0,
+    last_rank_exchange    INTEGER DEFAULT 0,
+    updated_at            TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS consequence_ledger (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id          TEXT NOT NULL,
+    consequence_type TEXT NOT NULL,
+    description      TEXT NOT NULL,
+    severity         TEXT DEFAULT 'medium',
+    status           TEXT DEFAULT 'open',
+    surfaced_at      TEXT DEFAULT NULL,
+    created_at       TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS pending_flags (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id          TEXT NOT NULL,
+    source_agent     TEXT NOT NULL,
+    flag_content     TEXT NOT NULL,
+    exchanges_held   INTEGER DEFAULT 0,
+    status           TEXT DEFAULT 'pending',
+    dismissed_reason TEXT DEFAULT NULL,
+    created_at       TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS faction_heat (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id    TEXT NOT NULL,
+    tag_id     TEXT NOT NULL,
+    heat       INTEGER DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS knowledge_scope (
+    id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id                      TEXT NOT NULL,
+    tag_id                       TEXT NOT NULL,
+    knows_own_role               INTEGER DEFAULT 1,
+    knows_immediate_superior     TEXT DEFAULT '',
+    knows_organization_structure TEXT DEFAULT 'none',
+    knows_other_cells            TEXT DEFAULT 'none',
+    knows_finances               TEXT DEFAULT 'own_pay',
+    knows_plans                  TEXT DEFAULT 'immediate',
+    knows_location_of            TEXT DEFAULT '[]',
+    has_met                      TEXT DEFAULT '[]',
+    has_heard_of                 TEXT DEFAULT '[]',
+    updated_at                   TEXT NOT NULL,
+    FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+  );
+
+  -- ─── Phase 1 Indexes ─────────────────────────────────────
+
+  CREATE INDEX IF NOT EXISTS idx_tags_game ON tags(game_id);
+  CREATE INDEX IF NOT EXISTS idx_tags_game_type ON tags(game_id, tag_type);
+  CREATE INDEX IF NOT EXISTS idx_tag_aliases_game ON tag_aliases(game_id);
+  CREATE INDEX IF NOT EXISTS idx_tag_aliases_lookup ON tag_aliases(game_id, alias);
+  CREATE INDEX IF NOT EXISTS idx_tag_relationships_game ON tag_relationships(game_id);
+  CREATE INDEX IF NOT EXISTS idx_tag_relationships_a ON tag_relationships(game_id, tag_id_a);
+  CREATE INDEX IF NOT EXISTS idx_tag_relationships_b ON tag_relationships(game_id, tag_id_b);
+  CREATE INDEX IF NOT EXISTS idx_pending_tags_game ON pending_tags(game_id);
+  CREATE INDEX IF NOT EXISTS idx_pending_relationships_game ON pending_relationships(game_id);
+  CREATE INDEX IF NOT EXISTS idx_skill_ranks_game ON skill_ranks(game_id);
+  CREATE INDEX IF NOT EXISTS idx_milestone_log_game ON milestone_log(game_id);
+  CREATE INDEX IF NOT EXISTS idx_companion_state_game ON companion_state(game_id);
+  CREATE INDEX IF NOT EXISTS idx_consequence_ledger_game ON consequence_ledger(game_id, status);
+  CREATE INDEX IF NOT EXISTS idx_pending_flags_game ON pending_flags(game_id, status);
+  CREATE INDEX IF NOT EXISTS idx_faction_heat_game ON faction_heat(game_id);
+  CREATE INDEX IF NOT EXISTS idx_knowledge_scope_game ON knowledge_scope(game_id, tag_id);
+
 `)
+
+// ── Migrations — add columns to existing tables if not present ──
+try { db.exec(`ALTER TABLE npcs ADD COLUMN disposition INTEGER DEFAULT 0`) } catch(e) {}
+try { db.exec(`ALTER TABLE npcs ADD COLUMN loyalty INTEGER DEFAULT 50`) } catch(e) {}
+try { db.exec(`ALTER TABLE npcs ADD COLUMN awareness TEXT DEFAULT 'unaware'`) } catch(e) {}
 
 // ═══════════════════════════════════════════════════════════
 // HELPERS
@@ -1173,6 +1419,529 @@ function getRecentSyncLog(gameId, limit = 10) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// PHASE 1 — TAGS
+// ═══════════════════════════════════════════════════════════
+
+function getTags(gameId) {
+  return db.prepare(
+    "SELECT * FROM tags WHERE game_id = ? AND confirmed = 1 ORDER BY canonical_name"
+  ).all(gameId)
+}
+
+function getTag(gameId, tagId) {
+  return db.prepare('SELECT * FROM tags WHERE game_id = ? AND id = ?').get(gameId, tagId)
+}
+
+function upsertTag(gameId, fields) {
+  const existing = getTag(gameId, fields.id)
+  if (existing) {
+    const { id, ...rest } = fields
+    const cols = Object.keys(rest).map(k => `${k} = ?`).join(', ')
+    db.prepare(`UPDATE tags SET ${cols}, updated_at = ? WHERE game_id = ? AND id = ?`)
+      .run(...Object.values(rest), now(), gameId, id)
+  } else {
+    const all = { game_id: gameId, ...fields, created_at: now(), updated_at: now() }
+    db.prepare(
+      `INSERT INTO tags (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+function deleteTag(gameId, tagId) {
+  db.prepare('DELETE FROM tags WHERE game_id = ? AND id = ?').run(gameId, tagId)
+}
+
+function getTagByAlias(gameId, alias) {
+  const row = db.prepare(`
+    SELECT t.* FROM tags t
+    JOIN tag_aliases a ON t.id = a.tag_id AND t.game_id = a.game_id
+    WHERE t.game_id = ? AND LOWER(a.alias) = LOWER(?)
+  `).get(gameId, alias)
+  return row || null
+}
+
+function findTagByAlias(gameId, alias) {
+  return getTagByAlias(gameId, alias)
+}
+
+function getAmbientIndex(gameId) {
+  const tags = db.prepare(
+    "SELECT * FROM tags WHERE game_id = ? AND status = 'active' AND confirmed = 1 ORDER BY canonical_name"
+  ).all(gameId)
+  return tags.map(t => `${t.canonical_name}: ${t.tag_type}, ${t.status}`)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — TAG ALIASES
+// ═══════════════════════════════════════════════════════════
+
+function getAliases(gameId, tagId) {
+  return db.prepare(
+    'SELECT * FROM tag_aliases WHERE game_id = ? AND tag_id = ?'
+  ).all(gameId, tagId)
+}
+
+function addAlias(gameId, tagId, alias) {
+  db.prepare(
+    'INSERT INTO tag_aliases (tag_id, game_id, alias) VALUES (?, ?, ?)'
+  ).run(tagId, gameId, alias)
+}
+
+function deleteAlias(gameId, aliasId) {
+  db.prepare('DELETE FROM tag_aliases WHERE id = ? AND game_id = ?').run(aliasId, gameId)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — TAG RELATIONSHIPS
+// ═══════════════════════════════════════════════════════════
+
+function getRelationships(gameId, tagId) {
+  return db.prepare(`
+    SELECT * FROM tag_relationships
+    WHERE game_id = ? AND (tag_id_a = ? OR tag_id_b = ?)
+    ORDER BY id ASC
+  `).all(gameId, tagId, tagId)
+}
+
+function getAllRelationships(gameId) {
+  return db.prepare(
+    'SELECT * FROM tag_relationships WHERE game_id = ? ORDER BY id ASC'
+  ).all(gameId)
+}
+
+function upsertRelationship(gameId, fields) {
+  if (fields.id) {
+    const { id, ...rest } = fields
+    const cols = Object.keys(rest).map(k => `${k} = ?`).join(', ')
+    db.prepare(`UPDATE tag_relationships SET ${cols}, updated_at = ? WHERE game_id = ? AND id = ?`)
+      .run(...Object.values(rest), now(), gameId, id)
+  } else {
+    const all = { game_id: gameId, ...fields, created_at: now(), updated_at: now() }
+    db.prepare(
+      `INSERT INTO tag_relationships (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+function deleteRelationship(gameId, id) {
+  db.prepare('DELETE FROM tag_relationships WHERE game_id = ? AND id = ?').run(gameId, id)
+}
+
+function getTagMap(gameId, tagIds) {
+  if (!tagIds || tagIds.length === 0) return []
+  const placeholders = tagIds.map(() => '?').join(', ')
+  return db.prepare(`
+    SELECT * FROM tag_relationships
+    WHERE game_id = ?
+    AND (tag_id_a IN (${placeholders}) OR tag_id_b IN (${placeholders}))
+    ORDER BY id ASC
+  `).all(gameId, ...tagIds, ...tagIds)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — PENDING TAGS
+// ═══════════════════════════════════════════════════════════
+
+function getPendingTags(gameId) {
+  return db.prepare(
+    'SELECT * FROM pending_tags WHERE game_id = ? ORDER BY created_at ASC'
+  ).all(gameId)
+}
+
+function addPendingTag(gameId, fields) {
+  const all = { game_id: gameId, ...fields, created_at: now() }
+  db.prepare(
+    `INSERT INTO pending_tags (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+  ).run(...Object.values(all))
+}
+
+function confirmPendingTag(gameId, id) {
+  const pending = db.prepare(
+    'SELECT * FROM pending_tags WHERE game_id = ? AND id = ?'
+  ).get(gameId, id)
+  if (!pending) return
+  upsertTag(gameId, {
+    id:             pending.id,
+    tag_type:       pending.tag_type,
+    canonical_name: pending.canonical_name,
+    description:    pending.description || '',
+    confirmed:      1,
+  })
+  db.prepare('DELETE FROM pending_tags WHERE game_id = ? AND id = ?').run(gameId, id)
+}
+
+function dismissPendingTag(gameId, id) {
+  db.prepare('DELETE FROM pending_tags WHERE game_id = ? AND id = ?').run(gameId, id)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — PENDING RELATIONSHIPS
+// ═══════════════════════════════════════════════════════════
+
+function getPendingRelationships(gameId) {
+  return db.prepare(
+    'SELECT * FROM pending_relationships WHERE game_id = ? ORDER BY created_at ASC'
+  ).all(gameId)
+}
+
+function addPendingRelationship(gameId, fields) {
+  const all = { game_id: gameId, ...fields, created_at: now() }
+  db.prepare(
+    `INSERT INTO pending_relationships (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+  ).run(...Object.values(all))
+}
+
+function confirmPendingRelationship(gameId, id) {
+  const pending = db.prepare(
+    'SELECT * FROM pending_relationships WHERE game_id = ? AND id = ?'
+  ).get(gameId, id)
+  if (!pending) return
+  upsertRelationship(gameId, {
+    tag_id_a:     pending.tag_id_a,
+    tag_id_b:     pending.tag_id_b,
+    relationship: pending.relationship,
+    context_note: pending.context_note || '',
+  })
+  db.prepare('DELETE FROM pending_relationships WHERE game_id = ? AND id = ?').run(gameId, id)
+}
+
+function dismissPendingRelationship(gameId, id) {
+  db.prepare('DELETE FROM pending_relationships WHERE game_id = ? AND id = ?').run(gameId, id)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — GAME MECHANICS
+// ═══════════════════════════════════════════════════════════
+
+function getGameMechanics(gameId) {
+  return db.prepare('SELECT * FROM game_mechanics WHERE game_id = ?').get(gameId)
+}
+
+function upsertGameMechanics(gameId, fields) {
+  const cols = Object.keys(fields).map(k => `${k} = ?`).join(', ')
+  const changed = db.prepare(
+    `UPDATE game_mechanics SET ${cols}, updated_at = ? WHERE game_id = ?`
+  ).run(...Object.values(fields), now(), gameId).changes
+  if (!changed) {
+    const all = { game_id: gameId, ...fields, updated_at: now() }
+    db.prepare(
+      `INSERT INTO game_mechanics (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+function getEffectiveRanks(gameId) {
+  const m = getGameMechanics(gameId)
+  if (!m) return { combat: 0, social: 0, magic: 0, wound_penalty: 0 }
+  const wp = m.wound_penalty || 0
+  return {
+    combat:        m.player_combat_rank - wp,
+    social:        m.player_social_rank,
+    magic:         m.player_magic_rank - Math.floor(wp / 2),
+    wound_penalty: wp,
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — SKILL RANKS
+// ═══════════════════════════════════════════════════════════
+
+function getSkillRanks(gameId) {
+  return db.prepare(
+    'SELECT * FROM skill_ranks WHERE game_id = ? ORDER BY skill_name'
+  ).all(gameId)
+}
+
+function getSkillRank(gameId, skillName) {
+  return db.prepare(
+    'SELECT * FROM skill_ranks WHERE game_id = ? AND skill_name = ?'
+  ).get(gameId, skillName)
+}
+
+function upsertSkillRank(gameId, fields) {
+  const existing = getSkillRank(gameId, fields.skill_name)
+  if (existing) {
+    const { skill_name, ...rest } = fields
+    const cols = Object.keys(rest).map(k => `${k} = ?`).join(', ')
+    db.prepare(`UPDATE skill_ranks SET ${cols}, updated_at = ? WHERE game_id = ? AND skill_name = ?`)
+      .run(...Object.values(rest), now(), gameId, skill_name)
+  } else {
+    const all = { game_id: gameId, ...fields, updated_at: now() }
+    db.prepare(
+      `INSERT INTO skill_ranks (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+function incrementSkillActivity(gameId, skillName) {
+  const existing = getSkillRank(gameId, skillName)
+  if (existing) {
+    db.prepare(
+      'UPDATE skill_ranks SET activity_count = activity_count + 1, updated_at = ? WHERE game_id = ? AND skill_name = ?'
+    ).run(now(), gameId, skillName)
+  } else {
+    const all = { game_id: gameId, skill_name: skillName, activity_count: 1, updated_at: now() }
+    db.prepare(
+      `INSERT INTO skill_ranks (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — DIFFICULTY TRACKER
+// ═══════════════════════════════════════════════════════════
+
+function getDifficultyTracker(gameId) {
+  return db.prepare('SELECT * FROM difficulty_tracker WHERE game_id = ?').get(gameId)
+}
+
+function upsertDifficultyTracker(gameId, fields) {
+  const cols = Object.keys(fields).map(k => `${k} = ?`).join(', ')
+  const changed = db.prepare(
+    `UPDATE difficulty_tracker SET ${cols}, updated_at = ? WHERE game_id = ?`
+  ).run(...Object.values(fields), now(), gameId).changes
+  if (!changed) {
+    const all = { game_id: gameId, ...fields, updated_at: now() }
+    db.prepare(
+      `INSERT INTO difficulty_tracker (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+function getActiveDirectives(gameId) {
+  const row = getDifficultyTracker(gameId)
+  if (!row || !row.active_directives) return []
+  try {
+    return JSON.parse(row.active_directives)
+  } catch (e) {
+    return []
+  }
+}
+
+function addDirective(gameId, directive) {
+  const directives = getActiveDirectives(gameId)
+  directives.push(directive)
+  db.prepare(
+    'UPDATE difficulty_tracker SET active_directives = ?, updated_at = ? WHERE game_id = ?'
+  ).run(JSON.stringify(directives), now(), gameId)
+}
+
+function removeDirective(gameId, directiveType) {
+  const directives = getActiveDirectives(gameId)
+  const filtered = directives.filter(d => d.type !== directiveType)
+  db.prepare(
+    'UPDATE difficulty_tracker SET active_directives = ?, updated_at = ? WHERE game_id = ?'
+  ).run(JSON.stringify(filtered), now(), gameId)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — ENVIRONMENTAL STATE
+// ═══════════════════════════════════════════════════════════
+
+function getEnvironmentalState(gameId) {
+  return db.prepare('SELECT * FROM environmental_state WHERE game_id = ?').get(gameId)
+}
+
+function upsertEnvironmentalState(gameId, fields) {
+  const cols = Object.keys(fields).map(k => `${k} = ?`).join(', ')
+  const changed = db.prepare(
+    `UPDATE environmental_state SET ${cols}, updated_at = ? WHERE game_id = ?`
+  ).run(...Object.values(fields), now(), gameId).changes
+  if (!changed) {
+    const all = { game_id: gameId, ...fields, updated_at: now() }
+    db.prepare(
+      `INSERT INTO environmental_state (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — MILESTONE LOG
+// ═══════════════════════════════════════════════════════════
+
+function getMilestones(gameId) {
+  return db.prepare(
+    'SELECT * FROM milestone_log WHERE game_id = ? ORDER BY id ASC'
+  ).all(gameId)
+}
+
+function addMilestone(gameId, fields) {
+  const all = { game_id: gameId, ...fields, created_at: now() }
+  db.prepare(
+    `INSERT INTO milestone_log (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+  ).run(...Object.values(all))
+}
+
+function getExchangesSinceLastMilestone(gameId, rankType) {
+  const row = db.prepare(
+    'SELECT exchange_number FROM milestone_log WHERE game_id = ? AND rank_type = ? ORDER BY id DESC LIMIT 1'
+  ).get(gameId, rankType)
+  return row ? row.exchange_number : 0
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — COMPANION STATE
+// ═══════════════════════════════════════════════════════════
+
+function getCompanionStates(gameId) {
+  return db.prepare(
+    'SELECT * FROM companion_state WHERE game_id = ? ORDER BY id ASC'
+  ).all(gameId)
+}
+
+function getCompanionState(gameId, tagId) {
+  return db.prepare(
+    'SELECT * FROM companion_state WHERE game_id = ? AND tag_id = ?'
+  ).get(gameId, tagId)
+}
+
+function upsertCompanionState(gameId, fields) {
+  const existing = getCompanionState(gameId, fields.tag_id)
+  if (existing) {
+    const { tag_id, ...rest } = fields
+    const cols = Object.keys(rest).map(k => `${k} = ?`).join(', ')
+    db.prepare(`UPDATE companion_state SET ${cols}, updated_at = ? WHERE game_id = ? AND tag_id = ?`)
+      .run(...Object.values(rest), now(), gameId, tag_id)
+  } else {
+    const all = { game_id: gameId, ...fields, updated_at: now() }
+    db.prepare(
+      `INSERT INTO companion_state (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+function incrementCompanionActivity(gameId, tagId, activityType) {
+  const colMap = {
+    combat:    'exchanges_in_combat',
+    base:      'exchanges_at_base',
+    traveling: 'exchanges_traveling',
+  }
+  const col = colMap[activityType]
+  if (!col) return
+  db.prepare(
+    `UPDATE companion_state SET ${col} = ${col} + 1, updated_at = ? WHERE game_id = ? AND tag_id = ?`
+  ).run(now(), gameId, tagId)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — CONSEQUENCE LEDGER
+// ═══════════════════════════════════════════════════════════
+
+function getOpenConsequences(gameId) {
+  return db.prepare(
+    "SELECT * FROM consequence_ledger WHERE game_id = ? AND status = 'open' ORDER BY id ASC"
+  ).all(gameId)
+}
+
+function addConsequence(gameId, fields) {
+  const all = { game_id: gameId, ...fields, created_at: now() }
+  db.prepare(
+    `INSERT INTO consequence_ledger (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+  ).run(...Object.values(all))
+}
+
+function surfaceConsequence(gameId, id) {
+  db.prepare(
+    "UPDATE consequence_ledger SET status = 'surfaced', surfaced_at = ? WHERE game_id = ? AND id = ?"
+  ).run(now(), gameId, id)
+}
+
+function dismissConsequence(gameId, id) {
+  db.prepare(
+    "UPDATE consequence_ledger SET status = 'dismissed' WHERE game_id = ? AND id = ?"
+  ).run(gameId, id)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — PENDING FLAGS
+// ═══════════════════════════════════════════════════════════
+
+function getPendingFlags(gameId) {
+  return db.prepare(
+    "SELECT * FROM pending_flags WHERE game_id = ? AND status = 'pending' ORDER BY id ASC"
+  ).all(gameId)
+}
+
+function addPendingFlag(gameId, fields) {
+  const all = { game_id: gameId, ...fields, created_at: now() }
+  db.prepare(
+    `INSERT INTO pending_flags (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+  ).run(...Object.values(all))
+}
+
+function incrementFlagAge(gameId) {
+  db.prepare(
+    "UPDATE pending_flags SET exchanges_held = exchanges_held + 1 WHERE game_id = ? AND status = 'pending'"
+  ).run(gameId)
+}
+
+function dismissFlag(gameId, id, reason) {
+  db.prepare(
+    "UPDATE pending_flags SET status = 'dismissed', dismissed_reason = ? WHERE game_id = ? AND id = ?"
+  ).run(reason || '', gameId, id)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — FACTION HEAT
+// ═══════════════════════════════════════════════════════════
+
+function getFactionHeat(gameId) {
+  return db.prepare(
+    'SELECT * FROM faction_heat WHERE game_id = ? ORDER BY heat DESC'
+  ).all(gameId)
+}
+
+function getFactionHeatByTag(gameId, tagId) {
+  return db.prepare(
+    'SELECT * FROM faction_heat WHERE game_id = ? AND tag_id = ?'
+  ).get(gameId, tagId)
+}
+
+function upsertFactionHeat(gameId, tagId, heat) {
+  const existing = getFactionHeatByTag(gameId, tagId)
+  if (existing) {
+    db.prepare(
+      'UPDATE faction_heat SET heat = ?, updated_at = ? WHERE game_id = ? AND tag_id = ?'
+    ).run(heat, now(), gameId, tagId)
+  } else {
+    db.prepare(
+      'INSERT INTO faction_heat (game_id, tag_id, heat, updated_at) VALUES (?, ?, ?, ?)'
+    ).run(gameId, tagId, heat, now())
+  }
+}
+
+function getHighHeatFactions(gameId, threshold = 50) {
+  return db.prepare(
+    'SELECT * FROM faction_heat WHERE game_id = ? AND heat >= ? ORDER BY heat DESC'
+  ).all(gameId, threshold)
+}
+
+// ═══════════════════════════════════════════════════════════
+// PHASE 1 — KNOWLEDGE SCOPE
+// ═══════════════════════════════════════════════════════════
+
+function getKnowledgeScope(gameId, tagId) {
+  return db.prepare(
+    'SELECT * FROM knowledge_scope WHERE game_id = ? AND tag_id = ?'
+  ).get(gameId, tagId)
+}
+
+function upsertKnowledgeScope(gameId, fields) {
+  const existing = getKnowledgeScope(gameId, fields.tag_id)
+  if (existing) {
+    const { tag_id, ...rest } = fields
+    const cols = Object.keys(rest).map(k => `${k} = ?`).join(', ')
+    db.prepare(`UPDATE knowledge_scope SET ${cols}, updated_at = ? WHERE game_id = ? AND tag_id = ?`)
+      .run(...Object.values(rest), now(), gameId, tag_id)
+  } else {
+    const all = { game_id: gameId, ...fields, updated_at: now() }
+    db.prepare(
+      `INSERT INTO knowledge_scope (${Object.keys(all).join(', ')}) VALUES (${Object.keys(all).map(() => '?').join(', ')})`
+    ).run(...Object.values(all))
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // INITIALIZE DEFAULT ROWS
 // Call after createGame() — seeds single-row-per-game tables
 // so all subsequent calls can use UPDATE safely.
@@ -1184,6 +1953,9 @@ function initializeGameRows(gameId) {
   db.prepare('INSERT OR IGNORE INTO world_overview (game_id, updated_at) VALUES (?, ?)').run(gameId, ts)
   db.prepare('INSERT OR IGNORE INTO game_clock (game_id, last_updated) VALUES (?, ?)').run(gameId, ts)
   db.prepare('INSERT OR IGNORE INTO agent_settings (game_id) VALUES (?)').run(gameId)
+  db.prepare('INSERT OR IGNORE INTO game_mechanics (game_id, updated_at) VALUES (?, ?)').run(gameId, ts)
+  db.prepare('INSERT OR IGNORE INTO difficulty_tracker (game_id, updated_at) VALUES (?, ?)').run(gameId, ts)
+  db.prepare('INSERT OR IGNORE INTO environmental_state (game_id, updated_at) VALUES (?, ?)').run(gameId, ts)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1254,4 +2026,58 @@ module.exports = {
 
   // System — Sync log
   appendSyncEntry, getRecentSyncLog,
+
+  // Tags
+  getTags, getTag, upsertTag, deleteTag,
+  getTagByAlias, findTagByAlias, getAmbientIndex,
+
+  // Tag Aliases
+  getAliases, addAlias, deleteAlias,
+
+  // Tag Relationships
+  getRelationships, getAllRelationships, upsertRelationship,
+  deleteRelationship, getTagMap,
+
+  // Pending Tags
+  getPendingTags, addPendingTag, confirmPendingTag,
+  dismissPendingTag,
+
+  // Pending Relationships
+  getPendingRelationships, addPendingRelationship,
+  confirmPendingRelationship, dismissPendingRelationship,
+
+  // Game Mechanics
+  getGameMechanics, upsertGameMechanics, getEffectiveRanks,
+
+  // Skill Ranks
+  getSkillRanks, getSkillRank, upsertSkillRank,
+  incrementSkillActivity,
+
+  // Difficulty Tracker
+  getDifficultyTracker, upsertDifficultyTracker,
+  getActiveDirectives, addDirective, removeDirective,
+
+  // Environmental State
+  getEnvironmentalState, upsertEnvironmentalState,
+
+  // Milestone Log
+  getMilestones, addMilestone, getExchangesSinceLastMilestone,
+
+  // Companion State
+  getCompanionStates, getCompanionState, upsertCompanionState,
+  incrementCompanionActivity,
+
+  // Consequence Ledger
+  getOpenConsequences, addConsequence, surfaceConsequence,
+  dismissConsequence,
+
+  // Pending Flags
+  getPendingFlags, addPendingFlag, incrementFlagAge, dismissFlag,
+
+  // Faction Heat
+  getFactionHeat, getFactionHeatByTag, upsertFactionHeat,
+  getHighHeatFactions,
+
+  // Knowledge Scope
+  getKnowledgeScope, upsertKnowledgeScope,
 }

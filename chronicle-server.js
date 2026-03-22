@@ -258,6 +258,83 @@ api.post('/games/:id/sync-log',       (req, res) => {
 })
 api.get ('/games/:id/sync-log',       (req, res) => res.json(storage.getRecentSyncLog(req.params.id, req.query.limit)))
 
+// ── Phase 1 — Tags ────────────────────────────────────────
+api.get   ('/games/:id/tags',                       (req, res) => res.json(storage.getTags(req.params.id)))
+api.get   ('/games/:id/tags/alias/:alias',           (req, res) => res.json(storage.getTagByAlias(req.params.id, req.params.alias)))
+api.get   ('/games/:id/ambient-index',              (req, res) => res.json(storage.getAmbientIndex(req.params.id)))
+api.get   ('/games/:id/tags/:tagId',                (req, res) => res.json(storage.getTag(req.params.id, req.params.tagId)))
+api.post  ('/games/:id/tags',                       (req, res) => { storage.upsertTag(req.params.id, req.body); res.json({ ok: true }) })
+api.delete('/games/:id/tags/:tagId',                (req, res) => { storage.deleteTag(req.params.id, req.params.tagId); res.json({ ok: true }) })
+
+// ── Phase 1 — Tag Aliases ─────────────────────────────────
+api.get   ('/games/:id/tags/:tagId/aliases',        (req, res) => res.json(storage.getAliases(req.params.id, req.params.tagId)))
+api.post  ('/games/:id/tags/:tagId/aliases',        (req, res) => { storage.addAlias(req.params.id, req.params.tagId, req.body.alias); res.json({ ok: true }) })
+api.delete('/games/:id/aliases/:aliasId',           (req, res) => { storage.deleteAlias(req.params.id, req.params.aliasId); res.json({ ok: true }) })
+
+// ── Phase 1 — Tag Relationships ───────────────────────────
+api.get   ('/games/:id/relationships',              (req, res) => res.json(storage.getAllRelationships(req.params.id)))
+api.get   ('/games/:id/tags/:tagId/relationships',  (req, res) => res.json(storage.getRelationships(req.params.id, req.params.tagId)))
+api.post  ('/games/:id/relationships',              (req, res) => { storage.upsertRelationship(req.params.id, req.body); res.json({ ok: true }) })
+api.delete('/games/:id/relationships/:relId',       (req, res) => { storage.deleteRelationship(req.params.id, req.params.relId); res.json({ ok: true }) })
+api.post  ('/games/:id/tag-map',                    (req, res) => res.json(storage.getTagMap(req.params.id, req.body.tagIds)))
+
+// ── Phase 1 — Pending Tags ────────────────────────────────
+api.get   ('/games/:id/pending-tags',               (req, res) => res.json(storage.getPendingTags(req.params.id)))
+api.post  ('/games/:id/pending-tags',               (req, res) => { storage.addPendingTag(req.params.id, req.body); res.json({ ok: true }) })
+api.post  ('/games/:id/pending-tags/:ptId/confirm', (req, res) => { storage.confirmPendingTag(req.params.id, req.params.ptId); res.json({ ok: true }) })
+api.delete('/games/:id/pending-tags/:ptId',         (req, res) => { storage.dismissPendingTag(req.params.id, req.params.ptId); res.json({ ok: true }) })
+
+// ── Phase 1 — Pending Relationships ──────────────────────
+api.get   ('/games/:id/pending-relationships',               (req, res) => res.json(storage.getPendingRelationships(req.params.id)))
+api.post  ('/games/:id/pending-relationships',               (req, res) => { storage.addPendingRelationship(req.params.id, req.body); res.json({ ok: true }) })
+api.post  ('/games/:id/pending-relationships/:prId/confirm', (req, res) => { storage.confirmPendingRelationship(req.params.id, req.params.prId); res.json({ ok: true }) })
+api.delete('/games/:id/pending-relationships/:prId',         (req, res) => { storage.dismissPendingRelationship(req.params.id, req.params.prId); res.json({ ok: true }) })
+
+// ── Phase 1 — Game State (game_mechanics) ─────────────────
+api.get  ('/games/:id/game-state',  (req, res) => res.json(storage.getGameMechanics(req.params.id)))
+api.patch('/games/:id/game-state',  (req, res) => { storage.upsertGameMechanics(req.params.id, req.body); res.json({ ok: true }) })
+
+// ── Phase 1 — Skill Ranks ─────────────────────────────────
+api.get ('/games/:id/skills',       (req, res) => res.json(storage.getSkillRanks(req.params.id)))
+api.get ('/games/:id/skills/:name', (req, res) => res.json(storage.getSkillRank(req.params.id, req.params.name)))
+api.post('/games/:id/skills',       (req, res) => { storage.upsertSkillRank(req.params.id, req.body); res.json({ ok: true }) })
+
+// ── Phase 1 — Difficulty Tracker ──────────────────────────
+api.get  ('/games/:id/difficulty',  (req, res) => res.json(storage.getDifficultyTracker(req.params.id)))
+api.patch('/games/:id/difficulty',  (req, res) => { storage.upsertDifficultyTracker(req.params.id, req.body); res.json({ ok: true }) })
+
+// ── Phase 1 — Environmental State ─────────────────────────
+api.get  ('/games/:id/environment', (req, res) => res.json(storage.getEnvironmentalState(req.params.id)))
+api.patch('/games/:id/environment', (req, res) => { storage.upsertEnvironmentalState(req.params.id, req.body); res.json({ ok: true }) })
+
+// ── Phase 1 — Milestone Log ───────────────────────────────
+api.get ('/games/:id/milestones',   (req, res) => res.json(storage.getMilestones(req.params.id)))
+api.post('/games/:id/milestones',   (req, res) => { storage.addMilestone(req.params.id, req.body); res.json({ ok: true }) })
+
+// ── Phase 1 — Companion State ─────────────────────────────
+api.get ('/games/:id/companions',           (req, res) => res.json(storage.getCompanionStates(req.params.id)))
+api.get ('/games/:id/companions/:tagId',    (req, res) => res.json(storage.getCompanionState(req.params.id, req.params.tagId)))
+api.post('/games/:id/companions',           (req, res) => { storage.upsertCompanionState(req.params.id, req.body); res.json({ ok: true }) })
+
+// ── Phase 1 — Consequence Ledger ──────────────────────────
+api.get   ('/games/:id/consequences',                  (req, res) => res.json(storage.getOpenConsequences(req.params.id)))
+api.post  ('/games/:id/consequences',                  (req, res) => { storage.addConsequence(req.params.id, req.body); res.json({ ok: true }) })
+api.patch ('/games/:id/consequences/:cId/surface',     (req, res) => { storage.surfaceConsequence(req.params.id, req.params.cId); res.json({ ok: true }) })
+api.delete('/games/:id/consequences/:cId',             (req, res) => { storage.dismissConsequence(req.params.id, req.params.cId); res.json({ ok: true }) })
+
+// ── Phase 1 — Pending Flags ───────────────────────────────
+api.get   ('/games/:id/flags',        (req, res) => res.json(storage.getPendingFlags(req.params.id)))
+api.post  ('/games/:id/flags',        (req, res) => { storage.addPendingFlag(req.params.id, req.body); res.json({ ok: true }) })
+api.delete('/games/:id/flags/:fId',   (req, res) => { storage.dismissFlag(req.params.id, req.params.fId, req.body.reason); res.json({ ok: true }) })
+
+// ── Phase 1 — Faction Heat ────────────────────────────────
+api.get ('/games/:id/faction-heat',   (req, res) => res.json(storage.getFactionHeat(req.params.id)))
+api.post('/games/:id/faction-heat',   (req, res) => { storage.upsertFactionHeat(req.params.id, req.body.tag_id, req.body.heat); res.json({ ok: true }) })
+
+// ── Phase 1 — Knowledge Scope ─────────────────────────────
+api.get ('/games/:id/knowledge-scope/:tagId', (req, res) => res.json(storage.getKnowledgeScope(req.params.id, req.params.tagId)))
+api.post('/games/:id/knowledge-scope',        (req, res) => { storage.upsertKnowledgeScope(req.params.id, req.body); res.json({ ok: true }) })
+
 // ── Mount all API routes under /api ───────────────────────
 app.use('/api', api)
 

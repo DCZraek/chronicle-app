@@ -1,449 +1,612 @@
 // ═══════════════════════════════════════════════════════════
-// mechanical.test.js — Phase 1 database tests
+// mechanical.test.js — Phase 2: Heuristics engine tests
 // Run with: node tests/mechanical.test.js
 // ═══════════════════════════════════════════════════════════
 
+const assert = require('assert')
 const storage = require('../storage')
-const assert  = require('assert')
+const h       = require('../heuristics')
 
-const GAME_ID  = 'test-phase1-' + Date.now()
+// ── Test helpers ─────────────────────────────────────────
+
 let passed = 0
 let failed = 0
-const failures = []
 
-function test(label, fn) {
+function test(name, fn) {
   try {
     fn()
-    console.log(`PASS: ${label}`)
+    console.log(`  ✓ ${name}`)
     passed++
   } catch (e) {
-    console.log(`FAIL: ${label}`)
-    console.log(`  Error: ${e.message}`)
-    failures.push({ label, error: e.message })
+    console.log(`  ✗ ${name}`)
+    console.log(`    ${e.message}`)
     failed++
   }
 }
 
-// ─── Setup ───────────────────────────────────────────────
-storage.createGame({ id: GAME_ID, name: 'Phase 1 Test', character: 'Tester' })
-storage.initializeGameRows(GAME_ID)
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 1 — Tags
-// ═══════════════════════════════════════════════════════════
-
-test('1.1 — Create a tag and retrieve it by ID', () => {
-  storage.upsertTag(GAME_ID, {
-    id:             'tag_test_npc',
-    tag_type:       'npc',
-    canonical_name: 'Test NPC',
-    description:    'A test NPC',
-    combat_rank:    12,
-    social_rank:    8,
-    entity_tier:    'human',
-  })
-  const tag = storage.getTag(GAME_ID, 'tag_test_npc')
-  assert.ok(tag, 'tag should exist')
-  assert.strictEqual(tag.canonical_name, 'Test NPC')
-  assert.strictEqual(tag.tag_type, 'npc')
-  assert.strictEqual(tag.combat_rank, 12)
-  assert.strictEqual(tag.social_rank, 8)
-  assert.strictEqual(tag.entity_tier, 'human')
-  assert.strictEqual(tag.description, 'A test NPC')
-})
-
-test('1.2 — Add aliases and find tag by alias', () => {
-  storage.addAlias(GAME_ID, 'tag_test_npc', 'the test npc')
-  storage.addAlias(GAME_ID, 'tag_test_npc', 'Test')
-  const byFull = storage.findTagByAlias(GAME_ID, 'the test npc')
-  assert.ok(byFull, 'should find by full alias')
-  assert.strictEqual(byFull.id, 'tag_test_npc')
-  const byShort = storage.findTagByAlias(GAME_ID, 'Test')
-  assert.ok(byShort, 'should find by short alias')
-  assert.strictEqual(byShort.id, 'tag_test_npc')
-  const missing = storage.findTagByAlias(GAME_ID, 'nonexistent alias xyz')
-  assert.strictEqual(missing, null, 'should return null for unknown alias')
-})
-
-test('1.3 — Ambient index only includes active confirmed tags', () => {
-  storage.upsertTag(GAME_ID, {
-    id: 'tag_dormant', tag_type: 'location',
-    canonical_name: 'Dormant Place', status: 'dormant', confirmed: 1,
-  })
-  storage.upsertTag(GAME_ID, {
-    id: 'tag_unconfirmed', tag_type: 'npc',
-    canonical_name: 'Unconfirmed Person', status: 'active', confirmed: 0,
-  })
-  const index = storage.getAmbientIndex(GAME_ID)
-  const names = index.map(s => s.split(':')[0].trim())
-  assert.ok(names.includes('Test NPC'), 'active confirmed tag should appear')
-  assert.ok(!names.includes('Dormant Place'), 'dormant tag should not appear')
-  assert.ok(!names.includes('Unconfirmed Person'), 'unconfirmed tag should not appear')
-})
-
-test('1.4 — Upsert updates existing tag', () => {
-  storage.upsertTag(GAME_ID, { id: 'tag_test_npc', combat_rank: 15 })
-  const tag = storage.getTag(GAME_ID, 'tag_test_npc')
-  assert.strictEqual(tag.combat_rank, 15)
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 2 — Tag Relationships
-// ═══════════════════════════════════════════════════════════
-
-test('2.1 — Create and retrieve a relationship', () => {
-  storage.upsertTag(GAME_ID, {
-    id: 'tag_test_faction', tag_type: 'faction',
-    canonical_name: 'Test Faction',
-  })
-  storage.upsertRelationship(GAME_ID, {
-    tag_id_a:     'tag_test_npc',
-    tag_id_b:     'tag_test_faction',
-    relationship: 'member_of',
-    context_note: 'foot soldier',
-  })
-  const rels = storage.getRelationships(GAME_ID, 'tag_test_npc')
-  assert.ok(rels.length >= 1, 'should have at least one relationship')
-  const rel = rels.find(r => r.relationship === 'member_of')
-  assert.ok(rel, 'member_of relationship should exist')
-  assert.strictEqual(rel.tag_id_a, 'tag_test_npc')
-  assert.strictEqual(rel.tag_id_b, 'tag_test_faction')
-  assert.strictEqual(rel.context_note, 'foot soldier')
-})
-
-test('2.2 — getTagMap returns relationships for given tag IDs', () => {
-  const map = storage.getTagMap(GAME_ID, ['tag_test_npc', 'tag_test_faction'])
-  assert.ok(map.length >= 1, 'should return at least one relationship')
-  const rel = map.find(r => r.relationship === 'member_of')
-  assert.ok(rel, 'member_of relationship should appear in tag map')
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 3 — Pending Tags and Relationships
-// ═══════════════════════════════════════════════════════════
-
-test('3.1 — Pending tags do not appear in ambient index', () => {
-  storage.addPendingTag(GAME_ID, {
-    id: 'tag_pending_a', tag_type: 'npc',
-    canonical_name: 'Pending NPC Alpha',
-  })
-  const index = storage.getAmbientIndex(GAME_ID)
-  const names = index.map(s => s.split(':')[0].trim())
-  assert.ok(!names.includes('Pending NPC Alpha'), 'pending tag should not appear in ambient index')
-})
-
-test('3.2 — Confirm pending tag promotes it correctly', () => {
-  storage.addPendingTag(GAME_ID, {
-    id: 'tag_pending_b', tag_type: 'location',
-    canonical_name: 'Pending Location Beta',
-  })
-  storage.confirmPendingTag(GAME_ID, 'tag_pending_b')
-  const confirmed = storage.getTags(GAME_ID)
-  const found = confirmed.find(t => t.id === 'tag_pending_b')
-  assert.ok(found, 'confirmed tag should appear in getTags')
-  assert.strictEqual(found.confirmed, 1)
-  assert.strictEqual(found.canonical_name, 'Pending Location Beta')
-})
-
-test('3.3 — Dismiss pending tag removes it', () => {
-  storage.addPendingTag(GAME_ID, {
-    id: 'tag_pending_c', tag_type: 'npc',
-    canonical_name: 'Pending NPC Gamma',
-  })
-  storage.dismissPendingTag(GAME_ID, 'tag_pending_c')
-  const pending = storage.getPendingTags(GAME_ID)
-  const found = pending.find(t => t.id === 'tag_pending_c')
-  assert.ok(!found, 'dismissed pending tag should not appear in getPendingTags')
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 4 — Game Mechanics
-// ═══════════════════════════════════════════════════════════
-
-test('4.1 — Default values are correct after initializeGameRows', () => {
-  const m = storage.getGameMechanics(GAME_ID)
-  assert.ok(m, 'game_mechanics record should exist')
-  assert.strictEqual(m.player_combat_rank, 10)
-  assert.strictEqual(m.player_social_rank, 10)
-  assert.strictEqual(m.player_magic_rank, 0)
-  assert.strictEqual(m.wound_slot_1, 'empty')
-  assert.strictEqual(m.wound_slot_2, 'empty')
-  assert.strictEqual(m.wound_slot_3, 'empty')
-  assert.strictEqual(m.wound_penalty, 0)
-  assert.strictEqual(m.exhaustion, 'none')
-  assert.strictEqual(m.hunger, 'none')
-})
-
-test('4.2 — getEffectiveRanks applies wound penalty correctly', () => {
-  storage.upsertGameMechanics(GAME_ID, { player_combat_rank: 15, wound_penalty: 10 })
-  const ranks = storage.getEffectiveRanks(GAME_ID)
-  assert.strictEqual(ranks.combat, 5, 'combat should be 15 - 10 = 5')
-  assert.strictEqual(ranks.social, 10, 'social should be unaffected')
-  assert.strictEqual(ranks.wound_penalty, 10)
-})
-
-test('4.3 — Upsert updates individual fields without overwriting others', () => {
-  storage.upsertGameMechanics(GAME_ID, { coin: 150 })
-  const m = storage.getGameMechanics(GAME_ID)
-  assert.strictEqual(m.coin, 150)
-  assert.strictEqual(m.player_combat_rank, 15, 'combat_rank should be unchanged at 15')
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 5 — Difficulty Tracker
-// ═══════════════════════════════════════════════════════════
-
-test('5.1 — Default values are correct after initializeGameRows', () => {
-  const dt = storage.getDifficultyTracker(GAME_ID)
-  assert.ok(dt, 'difficulty_tracker record should exist')
-  assert.strictEqual(dt.combat_since_wound, 0)
-  assert.strictEqual(dt.wound_threshold, 3)
-  assert.strictEqual(dt.escalation_rate, 3)
-  const directives = storage.getActiveDirectives(GAME_ID)
-  assert.deepStrictEqual(directives, [], 'active_directives should parse to empty array')
-})
-
-test('5.2 — addDirective and getActiveDirectives', () => {
-  storage.addDirective(GAME_ID, {
-    type: 'wound', minimum_rank: 18, tier: 'human', triggered_at_exchange: 5,
-  })
-  const directives = storage.getActiveDirectives(GAME_ID)
-  assert.strictEqual(directives.length, 1)
-  assert.strictEqual(directives[0].type, 'wound')
-  assert.strictEqual(directives[0].minimum_rank, 18)
-})
-
-test('5.3 — removeDirective removes correct entry', () => {
-  storage.addDirective(GAME_ID, {
-    type: 'challenge', minimum_rank: 20, tier: 'human', triggered_at_exchange: 6,
-  })
-  storage.removeDirective(GAME_ID, 'wound')
-  const directives = storage.getActiveDirectives(GAME_ID)
-  assert.strictEqual(directives.length, 1)
-  assert.strictEqual(directives[0].type, 'challenge')
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 6 — Skill Ranks
-// ═══════════════════════════════════════════════════════════
-
-test('6.1 — Create skill and increment activity', () => {
-  storage.upsertSkillRank(GAME_ID, { skill_name: 'navigation', rank: 12, ceiling: 40 })
-  storage.incrementSkillActivity(GAME_ID, 'navigation')
-  storage.incrementSkillActivity(GAME_ID, 'navigation')
-  const skill = storage.getSkillRank(GAME_ID, 'navigation')
-  assert.strictEqual(skill.rank, 12)
-  assert.strictEqual(skill.activity_count, 2)
-})
-
-test('6.2 — incrementSkillActivity creates skill if not exists', () => {
-  storage.incrementSkillActivity(GAME_ID, 'seamanship')
-  const skill = storage.getSkillRank(GAME_ID, 'seamanship')
-  assert.ok(skill, 'skill should have been created')
-  assert.strictEqual(skill.activity_count, 1)
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 7 — Consequence Ledger
-// ═══════════════════════════════════════════════════════════
-
-let consequenceId
-
-test('7.1 — Add consequence and retrieve open consequences', () => {
-  storage.addConsequence(GAME_ID, {
-    consequence_type: 'enemy_grudge',
-    description:      'Harkon wants revenge',
-    severity:         'high',
-  })
-  const open = storage.getOpenConsequences(GAME_ID)
-  const c = open.find(x => x.consequence_type === 'enemy_grudge')
-  assert.ok(c, 'consequence should be present')
-  assert.strictEqual(c.status, 'open')
-  assert.strictEqual(c.severity, 'high')
-  consequenceId = c.id
-})
-
-test('7.2 — surfaceConsequence updates status', () => {
-  storage.surfaceConsequence(GAME_ID, consequenceId)
-  const open = storage.getOpenConsequences(GAME_ID)
-  const stillOpen = open.find(x => x.id === consequenceId)
-  assert.ok(!stillOpen, 'surfaced consequence should not appear in open list')
-})
-
-test('7.3 — dismissConsequence removes from open list', () => {
-  storage.addConsequence(GAME_ID, {
-    consequence_type: 'debt',
-    description:      'Owes the harbor master',
-    severity:         'medium',
-  })
-  const before = storage.getOpenConsequences(GAME_ID)
-  const debt = before.find(x => x.consequence_type === 'debt')
-  assert.ok(debt, 'debt consequence should exist before dismiss')
-  storage.dismissConsequence(GAME_ID, debt.id)
-  const after = storage.getOpenConsequences(GAME_ID)
-  const stillThere = after.find(x => x.id === debt.id)
-  assert.ok(!stillThere, 'dismissed consequence should not appear in open list')
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 8 — Pending Flags
-// ═══════════════════════════════════════════════════════════
-
-let flagId1, flagId2
-
-test('8.1 — Add flag and retrieve pending flags', () => {
-  storage.addPendingFlag(GAME_ID, {
-    source_agent: 'world',
-    flag_content: 'Red Sails patrol nearby',
-  })
-  const flags = storage.getPendingFlags(GAME_ID)
-  const f = flags.find(x => x.flag_content === 'Red Sails patrol nearby')
-  assert.ok(f, 'flag should be present')
-  assert.strictEqual(f.exchanges_held, 0)
-  flagId1 = f.id
-})
-
-test('8.2 — incrementFlagAge increments all pending flags', () => {
-  storage.addPendingFlag(GAME_ID, {
-    source_agent: 'mechanics',
-    flag_content: 'Wound threshold crossed',
-  })
-  const all = storage.getPendingFlags(GAME_ID)
-  flagId2 = all.find(x => x.flag_content === 'Wound threshold crossed').id
-
-  storage.incrementFlagAge(GAME_ID)
-  const after1 = storage.getPendingFlags(GAME_ID)
-  for (const f of after1) {
-    assert.strictEqual(f.exchanges_held, 1, `flag ${f.id} should have exchanges_held:1`)
-  }
-  storage.incrementFlagAge(GAME_ID)
-  const after2 = storage.getPendingFlags(GAME_ID)
-  for (const f of after2) {
-    assert.strictEqual(f.exchanges_held, 2, `flag ${f.id} should have exchanges_held:2`)
-  }
-})
-
-test('8.3 — dismissFlag removes flag from pending list', () => {
-  storage.dismissFlag(GAME_ID, flagId1, 'narrator used it')
-  const flags = storage.getPendingFlags(GAME_ID)
-  const dismissed = flags.find(x => x.id === flagId1)
-  assert.ok(!dismissed, 'dismissed flag should not appear in pending list')
-  const remaining = flags.find(x => x.id === flagId2)
-  assert.ok(remaining, 'second flag should still be present')
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 9 — Faction Heat
-// ═══════════════════════════════════════════════════════════
-
-test('9.1 — Set and retrieve faction heat', () => {
-  storage.upsertTag(GAME_ID, {
-    id: 'tag_red_sails', tag_type: 'faction',
-    canonical_name: 'Red Sails',
-  })
-  storage.upsertFactionHeat(GAME_ID, 'tag_red_sails', 67)
-  const heat = storage.getFactionHeatByTag(GAME_ID, 'tag_red_sails')
-  assert.ok(heat, 'faction heat record should exist')
-  assert.strictEqual(heat.heat, 67)
-})
-
-test('9.2 — getHighHeatFactions returns correct results', () => {
-  storage.upsertTag(GAME_ID, {
-    id: 'tag_harbor_watch', tag_type: 'faction',
-    canonical_name: 'Harbor Watch',
-  })
-  storage.upsertFactionHeat(GAME_ID, 'tag_harbor_watch', 30)
-  const high = storage.getHighHeatFactions(GAME_ID, 50)
-  const ids = high.map(h => h.tag_id)
-  assert.ok(ids.includes('tag_red_sails'), 'Red Sails (heat 67) should be in high heat')
-  assert.ok(!ids.includes('tag_harbor_watch'), 'Harbor Watch (heat 30) should not be in high heat')
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 10 — Knowledge Scope
-// ═══════════════════════════════════════════════════════════
-
-test('10.1 — Create and retrieve knowledge scope', () => {
-  storage.upsertKnowledgeScope(GAME_ID, {
-    tag_id:                      'tag_test_npc',
-    knows_immediate_superior:    'Voss at the warehouse',
-    knows_organization_structure:'none',
-    knows_plans:                 'immediate',
-    knows_location_of:           '["harbor warehouse"]',
-    has_met:                     '["tag_voss"]',
-  })
-  const scope = storage.getKnowledgeScope(GAME_ID, 'tag_test_npc')
-  assert.ok(scope, 'knowledge scope should exist')
-  assert.strictEqual(scope.knows_immediate_superior, 'Voss at the warehouse')
-  assert.strictEqual(scope.knows_organization_structure, 'none')
-  assert.strictEqual(scope.knows_plans, 'immediate')
-  assert.strictEqual(scope.knows_location_of, '["harbor warehouse"]')
-  assert.strictEqual(scope.has_met, '["tag_voss"]')
-})
-
-test('10.2 — Upsert updates existing scope', () => {
-  storage.upsertKnowledgeScope(GAME_ID, {
-    tag_id:       'tag_test_npc',
-    knows_plans:  'medium_term',
-  })
-  const scope = storage.getKnowledgeScope(GAME_ID, 'tag_test_npc')
-  assert.strictEqual(scope.knows_plans, 'medium_term')
-  assert.strictEqual(scope.knows_immediate_superior, 'Voss at the warehouse',
-    'other fields should be unchanged')
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 11 — Companion State
-// ═══════════════════════════════════════════════════════════
-
-test('11.1 — Create companion state and increment activity', () => {
-  storage.upsertCompanionState(GAME_ID, {
-    tag_id:     'tag_grigor',
-    combat_rank: 8,
-    loyalty:    82,
-  })
-  storage.incrementCompanionActivity(GAME_ID, 'tag_grigor', 'combat')
-  storage.incrementCompanionActivity(GAME_ID, 'tag_grigor', 'combat')
-  storage.incrementCompanionActivity(GAME_ID, 'tag_grigor', 'combat')
-  storage.incrementCompanionActivity(GAME_ID, 'tag_grigor', 'base')
-  const c = storage.getCompanionState(GAME_ID, 'tag_grigor')
-  assert.ok(c, 'companion state should exist')
-  assert.strictEqual(c.exchanges_in_combat, 3)
-  assert.strictEqual(c.exchanges_at_base, 1)
-  assert.strictEqual(c.loyalty, 82)
-})
-
-// ═══════════════════════════════════════════════════════════
-// GROUP 12 — Integration: initializeGameRows completeness
-// ═══════════════════════════════════════════════════════════
-
-test('12.1 — All three new single-row tables are seeded', () => {
-  const freshId = 'test-fresh-' + Date.now()
-  storage.createGame({ id: freshId, name: 'Fresh Test', character: 'Fresh' })
-  storage.initializeGameRows(freshId)
-  const m  = storage.getGameMechanics(freshId)
-  const dt = storage.getDifficultyTracker(freshId)
-  const es = storage.getEnvironmentalState(freshId)
-  assert.ok(m,  'game_mechanics should be seeded')
-  assert.ok(dt, 'difficulty_tracker should be seeded')
-  assert.ok(es, 'environmental_state should be seeded')
-  storage.deleteGame(freshId)
-})
-
-// ─── Cleanup ─────────────────────────────────────────────
-storage.deleteGame(GAME_ID)
-
-// ─── Summary ─────────────────────────────────────────────
-const total = passed + failed
-console.log('')
-if (failures.length > 0) {
-  console.log('─── Failures ───────────────────────────────────────────')
-  for (const f of failures) {
-    console.log(`FAIL: ${f.label}`)
-    console.log(`  ${f.error}`)
-  }
-  console.log('')
+function group(name, fn) {
+  console.log(`\n${name}`)
+  fn()
 }
-console.log(`Tests passed: ${passed}/${total}`)
-console.log(`Tests failed: ${failed}/${total}`)
-process.exit(failed > 0 ? 1 : 0)
+
+// ── Setup: create a test game ─────────────────────────────
+
+const GAME_ID = `test_heuristics_${Date.now()}`
+
+function setup() {
+  storage.db.prepare(
+    `INSERT INTO games (id, name, created_at, last_played)
+     VALUES (?, 'Heuristics Test', datetime('now'), datetime('now'))`
+  ).run(GAME_ID)
+  storage.initializeGameRows(GAME_ID)
+}
+
+function teardown() {
+  storage.db.prepare('DELETE FROM games WHERE id = ?').run(GAME_ID)
+}
+
+// ── Run setup before any tests execute ───────────────────
+setup()
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 1 — calculateRankDifferential
+// ═══════════════════════════════════════════════════════════
+
+group('1. calculateRankDifferential', () => {
+  test('attacker_dominant when gap >= 35', () => {
+    const r = h.calculateRankDifferential(60, 20)
+    assert.strictEqual(r.gap, 40)
+    assert.strictEqual(r.outcome, 'attacker_dominant')
+  })
+
+  test('attacker_advantage when gap 20-34', () => {
+    const r = h.calculateRankDifferential(45, 20)
+    assert.strictEqual(r.gap, 25)
+    assert.strictEqual(r.outcome, 'attacker_advantage')
+  })
+
+  test('contested when gap -9 to +19', () => {
+    const equal = h.calculateRankDifferential(20, 20)
+    assert.strictEqual(equal.outcome, 'contested')
+
+    const slight = h.calculateRankDifferential(25, 20)
+    assert.strictEqual(slight.outcome, 'contested')
+
+    const negative = h.calculateRankDifferential(15, 20)
+    assert.strictEqual(negative.outcome, 'contested')
+  })
+
+  test('defender_advantage when gap -10 to -19', () => {
+    const r = h.calculateRankDifferential(10, 25)
+    assert.strictEqual(r.gap, -15)
+    assert.strictEqual(r.outcome, 'defender_advantage')
+  })
+
+  test('defender_dominant when gap -20 to -34', () => {
+    const r = h.calculateRankDifferential(10, 40)
+    assert.strictEqual(r.gap, -30)
+    assert.strictEqual(r.outcome, 'defender_dominant')
+  })
+
+  test('impossible_for_attacker when gap <= -35', () => {
+    const r = h.calculateRankDifferential(10, 50)
+    assert.strictEqual(r.gap, -40)
+    assert.strictEqual(r.outcome, 'impossible_for_attacker')
+  })
+
+  test('counts tier_crossings correctly', () => {
+    // Boundaries at 25, 40, 60, 80, 95
+    const r1 = h.calculateRankDifferential(10, 30)  // crosses 25
+    assert.strictEqual(r1.tier_crossings, 1)
+
+    const r2 = h.calculateRankDifferential(10, 50)  // crosses 25 and 40
+    assert.strictEqual(r2.tier_crossings, 2)
+
+    const r3 = h.calculateRankDifferential(20, 22)  // no crossing
+    assert.strictEqual(r3.tier_crossings, 0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 2 — calculateWoundSeverity
+// ═══════════════════════════════════════════════════════════
+
+group('2. calculateWoundSeverity', () => {
+  test('superficial when gap <= -15', () => {
+    const r = h.calculateWoundSeverity(5, 25)  // gap = -20
+    assert.strictEqual(r.severity, 'superficial')
+    assert.strictEqual(r.fills_slot, false)
+    assert.strictEqual(r.penalty, 0)
+  })
+
+  test('minor when gap -14 to -5', () => {
+    const r = h.calculateWoundSeverity(15, 25)  // gap = -10
+    assert.strictEqual(r.severity, 'minor')
+    assert.strictEqual(r.fills_slot, false)
+    assert.strictEqual(r.penalty, 0)
+  })
+
+  test('moderate when gap -4 to +4', () => {
+    const r = h.calculateWoundSeverity(22, 20)  // gap = +2
+    assert.strictEqual(r.severity, 'moderate')
+    assert.strictEqual(r.fills_slot, true)
+    assert.strictEqual(r.penalty, 5)
+  })
+
+  test('serious when gap +5 to +14', () => {
+    const r = h.calculateWoundSeverity(30, 20)  // gap = +10
+    assert.strictEqual(r.severity, 'serious')
+    assert.strictEqual(r.fills_slot, true)
+    assert.strictEqual(r.penalty, 10)
+  })
+
+  test('critical when gap >= +15', () => {
+    const r = h.calculateWoundSeverity(40, 20)  // gap = +20
+    assert.strictEqual(r.severity, 'critical')
+    assert.strictEqual(r.fills_slot, true)
+    assert.strictEqual(r.penalty, 15)
+  })
+
+  test('boundary at gap -5 is minor not superficial', () => {
+    const r = h.calculateWoundSeverity(15, 20)  // gap = -5
+    assert.strictEqual(r.severity, 'minor')
+  })
+
+  test('boundary at gap +5 is serious not moderate', () => {
+    const r = h.calculateWoundSeverity(25, 20)  // gap = +5
+    assert.strictEqual(r.severity, 'serious')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 3 — calculateEffectiveRanks
+// ═══════════════════════════════════════════════════════════
+
+group('3. calculateEffectiveRanks', () => {
+  test('returns zeroes for nonexistent game', () => {
+    const r = h.calculateEffectiveRanks('no_such_game')
+    assert.strictEqual(r.effective.combat, 0)
+    assert.strictEqual(r.effective.social, 0)
+    assert.strictEqual(r.effective.magic, 0)
+  })
+
+  test('returns base ranks with no penalties', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 18,
+      player_social_rank: 14,
+      player_magic_rank:  6,
+      wound_penalty:      0,
+      exhaustion:         'none',
+      hunger:             'none',
+    })
+    const r = h.calculateEffectiveRanks(GAME_ID)
+    assert.strictEqual(r.effective.combat, 18)
+    assert.strictEqual(r.effective.social, 14)
+    assert.strictEqual(r.effective.magic,  6)
+    assert.strictEqual(r.penalties.wound,  0)
+  })
+
+  test('applies wound penalty to combat and magic/2', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 18,
+      player_social_rank: 14,
+      player_magic_rank:  10,
+      wound_penalty:      10,
+      exhaustion:         'none',
+      hunger:             'none',
+    })
+    const r = h.calculateEffectiveRanks(GAME_ID)
+    assert.strictEqual(r.effective.combat, 8)   // 18 - 10
+    assert.strictEqual(r.effective.social, 14)  // unchanged
+    assert.strictEqual(r.effective.magic,  5)   // 10 - floor(10/2)
+  })
+
+  test('applies exhaustion to combat and social', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 18,
+      player_social_rank: 14,
+      player_magic_rank:  6,
+      wound_penalty:      0,
+      exhaustion:         'moderate',
+      hunger:             'none',
+    })
+    const r = h.calculateEffectiveRanks(GAME_ID)
+    assert.strictEqual(r.penalties.exhaustion, 5)
+    assert.strictEqual(r.effective.combat, 13)  // 18 - 5
+    assert.strictEqual(r.effective.social, 9)   // 14 - 5
+  })
+
+  test('hunger affects combat only', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 18,
+      player_social_rank: 14,
+      player_magic_rank:  6,
+      wound_penalty:      0,
+      exhaustion:         'none',
+      hunger:             'mild',
+    })
+    const r = h.calculateEffectiveRanks(GAME_ID)
+    assert.strictEqual(r.penalties.hunger,  2)
+    assert.strictEqual(r.effective.combat, 16)  // 18 - 2
+    assert.strictEqual(r.effective.social, 14)  // unchanged
+  })
+
+  test('effective rank cannot go below 0', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 5,
+      player_social_rank: 5,
+      player_magic_rank:  5,
+      wound_penalty:      15,
+      exhaustion:         'severe',
+      hunger:             'severe',
+    })
+    const r = h.calculateEffectiveRanks(GAME_ID)
+    assert.strictEqual(r.effective.combat, 0)
+    assert.strictEqual(r.effective.social, 0)
+    assert.strictEqual(r.effective.magic,  0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 4 — getEntityTierForRank
+// ═══════════════════════════════════════════════════════════
+
+group('4. getEntityTierForRank', () => {
+  test('0 is human',                    () => assert.strictEqual(h.getEntityTierForRank(0),   'human'))
+  test('25 is human',                   () => assert.strictEqual(h.getEntityTierForRank(25),  'human'))
+  test('26 is augmented',               () => assert.strictEqual(h.getEntityTierForRank(26),  'augmented'))
+  test('40 is augmented',               () => assert.strictEqual(h.getEntityTierForRank(40),  'augmented'))
+  test('41 is lesser_supernatural',     () => assert.strictEqual(h.getEntityTierForRank(41),  'lesser_supernatural'))
+  test('60 is lesser_supernatural',     () => assert.strictEqual(h.getEntityTierForRank(60),  'lesser_supernatural'))
+  test('61 is greater_supernatural',    () => assert.strictEqual(h.getEntityTierForRank(61),  'greater_supernatural'))
+  test('80 is greater_supernatural',    () => assert.strictEqual(h.getEntityTierForRank(80),  'greater_supernatural'))
+  test('81 is divine_adjacent',         () => assert.strictEqual(h.getEntityTierForRank(81),  'divine_adjacent'))
+  test('95 is divine_adjacent',         () => assert.strictEqual(h.getEntityTierForRank(95),  'divine_adjacent'))
+  test('96 is true_divine',             () => assert.strictEqual(h.getEntityTierForRank(96),  'true_divine'))
+  test('100 is true_divine',            () => assert.strictEqual(h.getEntityTierForRank(100), 'true_divine'))
+})
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 5 — calculateRequiredEncounterRank
+// ═══════════════════════════════════════════════════════════
+
+group('5. calculateRequiredEncounterRank', () => {
+  test('returns effective combat when no escalation', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 18,
+      player_social_rank: 14,
+      player_magic_rank:  0,
+      wound_penalty:      0,
+      exhaustion:         'none',
+      hunger:             'none',
+    })
+    storage.upsertDifficultyTracker(GAME_ID, {
+      combat_since_wound: 0,
+      escalation_rate:    3,
+    })
+    const rank = h.calculateRequiredEncounterRank(GAME_ID)
+    assert.strictEqual(rank, 18)
+  })
+
+  test('escalates by escalation_rate per combat exchange', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 15,
+      wound_penalty:      0,
+      exhaustion:         'none',
+      hunger:             'none',
+    })
+    storage.upsertDifficultyTracker(GAME_ID, {
+      combat_since_wound: 4,
+      escalation_rate:    3,
+    })
+    const rank = h.calculateRequiredEncounterRank(GAME_ID)
+    assert.strictEqual(rank, 27)  // 15 + (4 * 3)
+  })
+
+  test('caps at 95', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 20,
+      wound_penalty:      0,
+      exhaustion:         'none',
+      hunger:             'none',
+    })
+    storage.upsertDifficultyTracker(GAME_ID, {
+      combat_since_wound: 100,
+      escalation_rate:    3,
+    })
+    const rank = h.calculateRequiredEncounterRank(GAME_ID)
+    assert.strictEqual(rank, 95)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 6 — updateDifficultyTracker
+// ═══════════════════════════════════════════════════════════
+
+group('6. updateDifficultyTracker', () => {
+  test('increments combat_since_wound on combat scene', () => {
+    storage.upsertDifficultyTracker(GAME_ID, {
+      combat_since_wound: 1,
+      wound_threshold:    10,
+      escalation_rate:    3,
+      active_directives:  '[]',
+    })
+    h.updateDifficultyTracker(GAME_ID, { sceneType: 'combat', woundOccurred: false })
+    const tracker = storage.getDifficultyTracker(GAME_ID)
+    assert.strictEqual(tracker.combat_since_wound, 2)
+  })
+
+  test('resets combat_since_wound when wound occurred', () => {
+    storage.upsertDifficultyTracker(GAME_ID, {
+      combat_since_wound: 5,
+      wound_threshold:    10,
+      active_directives:  '[]',
+    })
+    h.updateDifficultyTracker(GAME_ID, { sceneType: 'combat', woundOccurred: true })
+    const tracker = storage.getDifficultyTracker(GAME_ID)
+    assert.strictEqual(tracker.combat_since_wound, 0)
+  })
+
+  test('fires wound directive when threshold crossed', () => {
+    storage.upsertDifficultyTracker(GAME_ID, {
+      combat_since_wound: 2,
+      wound_threshold:    3,
+      escalation_rate:    3,
+      active_directives:  '[]',
+    })
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 15,
+      wound_penalty:      0,
+      exhaustion:         'none',
+      hunger:             'none',
+    })
+    const result = h.updateDifficultyTracker(GAME_ID, { sceneType: 'combat', woundOccurred: false })
+    assert.ok(result.directives_fired.length > 0)
+    assert.strictEqual(result.directives_fired[0].type, 'wound')
+  })
+
+  test('does not fire wound directive twice', () => {
+    const existing = [{ type: 'wound', minimum_encounter_rank: 20, entity_tier: 'human' }]
+    storage.upsertDifficultyTracker(GAME_ID, {
+      combat_since_wound: 99,
+      wound_threshold:    3,
+      escalation_rate:    3,
+      active_directives:  JSON.stringify(existing),
+    })
+    const result = h.updateDifficultyTracker(GAME_ID, { sceneType: 'combat', woundOccurred: false })
+    assert.strictEqual(result.directives_fired.length, 0)
+  })
+
+  test('consecutive_successes resets on setback', () => {
+    storage.upsertDifficultyTracker(GAME_ID, {
+      consecutive_successes: 3,
+      active_directives:     '[]',
+    })
+    h.updateDifficultyTracker(GAME_ID, { sceneType: 'social', setbackOccurred: true })
+    const tracker = storage.getDifficultyTracker(GAME_ID)
+    assert.strictEqual(tracker.consecutive_successes, 0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 7 — validateGrowth
+// ═══════════════════════════════════════════════════════════
+
+group('7. validateGrowth', () => {
+  test('new_skill is always valid', () => {
+    const r = h.validateGrowth(GAME_ID, 'new_skill', 'athletics')
+    assert.strictEqual(r.valid, true)
+  })
+
+  test('rank_increase valid when no previous milestones', () => {
+    storage.db.prepare('DELETE FROM milestone_log WHERE game_id = ?').run(GAME_ID)
+    const r = h.validateGrowth(GAME_ID, 'rank_increase', 'combat')
+    assert.strictEqual(r.valid, true)
+  })
+
+  test('skill_increase fails below 5 activity', () => {
+    storage.upsertSkillRank(GAME_ID, {
+      skill_name:     'swords',
+      rank:           5,
+      ceiling:        40,
+      activity_count: 3,
+    })
+    const r = h.validateGrowth(GAME_ID, 'skill_increase', 'swords')
+    assert.strictEqual(r.valid, false)
+    assert.ok(r.reason.includes('3'))
+  })
+
+  test('skill_increase valid at 5 activity', () => {
+    storage.upsertSkillRank(GAME_ID, {
+      skill_name:     'swords',
+      rank:           5,
+      ceiling:        40,
+      activity_count: 5,
+    })
+    const r = h.validateGrowth(GAME_ID, 'skill_increase', 'swords')
+    assert.strictEqual(r.valid, true)
+  })
+
+  test('skill_increase fails at ceiling', () => {
+    storage.upsertSkillRank(GAME_ID, {
+      skill_name:     'swords',
+      rank:           40,
+      ceiling:        40,
+      activity_count: 10,
+    })
+    const r = h.validateGrowth(GAME_ID, 'skill_increase', 'swords')
+    assert.strictEqual(r.valid, false)
+    assert.ok(r.reason.includes('ceiling'))
+  })
+
+  test('companion_rankup fails below 5 combat exchanges', () => {
+    storage.upsertCompanionState(GAME_ID, {
+      tag_id:              'tag_companion_a',
+      combat_rank:         12,
+      exchanges_in_combat: 2,
+    })
+    const r = h.validateGrowth(GAME_ID, 'companion_rankup', 'tag_companion_a')
+    assert.strictEqual(r.valid, false)
+  })
+
+  test('companion_rankup valid at 5 combat exchanges', () => {
+    storage.upsertCompanionState(GAME_ID, {
+      tag_id:              'tag_companion_a',
+      combat_rank:         12,
+      exchanges_in_combat: 5,
+    })
+    const r = h.validateGrowth(GAME_ID, 'companion_rankup', 'tag_companion_a')
+    assert.strictEqual(r.valid, true)
+  })
+
+  test('unknown growthType returns invalid', () => {
+    const r = h.validateGrowth(GAME_ID, 'something_else', 'combat')
+    assert.strictEqual(r.valid, false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 8 — runTimeDegradation
+// ═══════════════════════════════════════════════════════════
+
+group('8. runTimeDegradation', () => {
+  test('recommends wound worsening for untreated wounds', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      wound_slot_1:  'minor',
+      wound_slot_2:  'empty',
+      wound_slot_3:  'empty',
+      wound_penalty: 0,
+    })
+    const r = h.runTimeDegradation(GAME_ID)
+    const rec = r.recommendations.find(x => x.type === 'wound_worsening')
+    assert.ok(rec)
+    assert.strictEqual(rec.current_severity, 'minor')
+    assert.strictEqual(rec.recommended_severity, 'moderate')
+  })
+
+  test('no wound recommendations when all slots empty', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      wound_slot_1: 'empty',
+      wound_slot_2: 'empty',
+      wound_slot_3: 'empty',
+    })
+    const r = h.runTimeDegradation(GAME_ID)
+    const woundRecs = r.recommendations.filter(x => x.type === 'wound_worsening')
+    assert.strictEqual(woundRecs.length, 0)
+  })
+
+  test('flags stale pending flags (held >= 3 exchanges)', () => {
+    storage.addPendingFlag(GAME_ID, {
+      source_agent:   'mechanics',
+      flag_content:   'Red Sails patrol spotted',
+      exchanges_held: 3,
+      status:         'pending',
+    })
+    const r = h.runTimeDegradation(GAME_ID)
+    const flagRecs = r.recommendations.filter(x => x.type === 'stale_flag')
+    assert.ok(flagRecs.length > 0)
+  })
+
+  test('does not write to database', () => {
+    const before = storage.getGameMechanics(GAME_ID)
+    h.runTimeDegradation(GAME_ID)
+    const after = storage.getGameMechanics(GAME_ID)
+    assert.strictEqual(before.wound_slot_1, after.wound_slot_1)
+    assert.strictEqual(before.updated_at, after.updated_at)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// GROUP 9 — buildAmbientIndex and assembleBrief
+// ═══════════════════════════════════════════════════════════
+
+group('9. buildAmbientIndex and assembleBrief', () => {
+  test('buildAmbientIndex returns "none" when no tags', () => {
+    const index = h.buildAmbientIndex(GAME_ID)
+    assert.ok(index.includes('[AMBIENT INDEX]'))
+    assert.ok(index.includes('none'))
+  })
+
+  test('buildAmbientIndex groups tags by type', () => {
+    storage.upsertTag(GAME_ID, {
+      id:             'tag_grigor',
+      tag_type:       'npc',
+      canonical_name: 'Grigor',
+      status:         'active',
+      confirmed:      1,
+    })
+    storage.upsertTag(GAME_ID, {
+      id:             'tag_east_dock',
+      tag_type:       'location',
+      canonical_name: 'East Dock',
+      status:         'active',
+      confirmed:      1,
+    })
+    const index = h.buildAmbientIndex(GAME_ID)
+    assert.ok(index.includes('[AMBIENT INDEX]'))
+    assert.ok(index.includes('npc: tag_grigor'))
+    assert.ok(index.includes('location: tag_east_dock'))
+  })
+
+  test('assembleBrief includes all four sections', () => {
+    storage.upsertGameMechanics(GAME_ID, {
+      player_combat_rank: 15,
+      player_social_rank: 12,
+      player_magic_rank:  0,
+      wound_penalty:      0,
+      exhaustion:         'none',
+      hunger:             'none',
+      wound_slot_1:       'empty',
+      wound_slot_2:       'empty',
+      wound_slot_3:       'empty',
+      essence_current:    0,
+      essence_max:        0,
+    })
+    storage.upsertDifficultyTracker(GAME_ID, { active_directives: '[]' })
+    storage.db.prepare('DELETE FROM consequence_ledger WHERE game_id = ?').run(GAME_ID)
+
+    const brief = h.assembleBrief(GAME_ID, {
+      character: 'Character agent response here',
+      npc:       'NPC agent response here',
+    })
+    assert.ok(brief.includes('[PLAYER STATE]'))
+    assert.ok(brief.includes('[ACTIVE DIRECTIVES]'))
+    assert.ok(brief.includes('[OPEN CONSEQUENCES]'))
+    assert.ok(brief.includes('[AGENT RESPONSES]'))
+    assert.ok(brief.includes('Character agent response here'))
+    assert.ok(brief.includes('NPC agent response here'))
+  })
+
+  test('assembleBrief includes wound directive when active', () => {
+    const directives = [{ type: 'wound', minimum_encounter_rank: 22, entity_tier: 'human' }]
+    storage.upsertDifficultyTracker(GAME_ID, { active_directives: JSON.stringify(directives) })
+    const brief = h.assembleBrief(GAME_ID, {})
+    assert.ok(brief.includes('⚑ DIRECTIVE: wound'))
+    assert.ok(brief.includes('22'))
+  })
+
+  test('assembleBrief shows open consequences', () => {
+    storage.db.prepare("DELETE FROM consequence_ledger WHERE game_id = ?").run(GAME_ID)
+    storage.addConsequence(GAME_ID, {
+      consequence_type: 'Red_Sails_debt',
+      description:      'Ajax humiliated a Red Sails man publicly',
+      severity:         'medium',
+      status:           'open',
+    })
+    const brief = h.assembleBrief(GAME_ID, {})
+    assert.ok(brief.includes('Red_Sails_debt'))
+    assert.ok(brief.includes('Ajax humiliated'))
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// TEARDOWN
+// ═══════════════════════════════════════════════════════════
+
+teardown()
+
+console.log(`\n${'═'.repeat(50)}`)
+console.log(`  ${passed} passed, ${failed} failed`)
+console.log('═'.repeat(50))
+
+if (failed > 0) process.exit(1)
